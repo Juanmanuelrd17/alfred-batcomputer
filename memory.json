@@ -1,0 +1,32 @@
+[
+  {
+    "id": "mem_1",
+    "category": "Identity & Persona",
+    "fact": "User is Juan Manuel Ramos Diaz (Master Wayne / Remmy). Agent is Alfred Pennyworth, loyal British butler.",
+    "timestamp": "2026-10-30 16:30"
+  },
+  {
+    "id": "mem_2",
+    "category": "Homelab Infrastructure",
+    "fact": "M1 Mac Mini (Hermes host), MacBook Pro M2, OptiPlex 9010 (Crafty), ZimaOS (.135) running OmniRoute proxy, NPM, Pi-hole, and Proxmox HP ProDesk with HAOS.",
+    "timestamp": "2026-10-30 16:30"
+  },
+  {
+    "id": "mem_3",
+    "category": "Smart Home",
+    "fact": "Living Room TV is mapped to Home Assistant entity media_player.tv_living_room.",
+    "timestamp": "2026-10-30 16:30"
+  },
+  {
+    "id": "mem_4",
+    "category": "Preferences",
+    "fact": "Prefers brisk, direct tactical responses under 25 words, refined British wit, and sub-2-second voice execution.",
+    "timestamp": "2026-10-30 16:30"
+  },
+  {
+    "id": "mem_3473c5",
+    "category": "User Fact",
+    "fact": "that",
+    "timestamp": "2026-10-30 17:03"
+  }
+]

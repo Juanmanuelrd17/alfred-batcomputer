@@ -1,0 +1,1780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WAYNE ENTERPRISES // BATCOMPUTER HUD // ALFRED JARVIS CORE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #000408;
+      --panel-bg: rgba(2, 18, 32, 0.75);
+      --panel-border: rgba(0, 229, 255, 0.28);
+      --cyan: #00e5ff;
+      --cyan-bright: #80f4ff;
+      --blue: #0077ff;
+      --dark-blue: #003366;
+      --glow: 0 0 10px rgba(0, 229, 255, 0.7), 0 0 25px rgba(0, 119, 255, 0.4);
+      --glow-strong: 0 0 15px rgba(0, 229, 255, 0.9), 0 0 35px rgba(0, 119, 255, 0.7);
+      --font-display: 'Orbitron', sans-serif;
+      --font-mono: 'Share Tech Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--cyan);
+      font-family: var(--font-mono);
+      min-height: 100vh;
+      width: 100vw;
+      overflow-x: hidden;
+      position: relative;
+      background-image: 
+        radial-gradient(circle at 50% 50%, rgba(0, 119, 255, 0.08) 0%, transparent 65%),
+        linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
+      background-size: 100% 100%, 40px 40px, 40px 40px;
+    }
+
+    body::after {
+      content: " ";
+      display: block;
+      position: fixed;
+      top: 0; left: 0; bottom: 0; right: 0;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+      background-size: 100% 3px;
+      z-index: 999;
+      pointer-events: none;
+      opacity: 0.75;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 24px;
+      border-bottom: 1px solid var(--panel-border);
+      background: rgba(0, 8, 18, 0.85);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(10px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 15px;
+      letter-spacing: 2px;
+      color: #fff;
+      text-shadow: var(--glow);
+    }
+
+    .brand-tag {
+      font-size: 10px;
+      background: rgba(0, 229, 255, 0.15);
+      border: 1px solid var(--cyan);
+      padding: 2px 6px;
+      border-radius: 2px;
+      color: var(--cyan);
+    }
+
+    .header-center {
+      font-size: 11px;
+      letter-spacing: 1px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .header-select {
+      background: rgba(0, 20, 40, 0.9);
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .header-select:hover {
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+    }
+
+    .clock {
+      font-family: var(--font-display);
+      font-size: 14px;
+      color: #fff;
+      text-shadow: var(--glow);
+    }
+
+    /* Main HUD Layout Grid */
+    .hud-grid {
+      display: grid;
+      grid-template-columns: 320px 1fr 340px;
+      grid-template-rows: auto 1fr auto;
+      gap: 16px;
+      padding: 16px;
+      max-width: 1800px;
+      margin: 0 auto;
+      min-height: calc(100vh - 55px);
+    }
+
+    @media (max-width: 1300px) {
+      .hud-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      padding: 14px;
+      position: relative;
+      backdrop-filter: blur(8px);
+      box-shadow: inset 0 0 15px rgba(0, 229, 255, 0.03);
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--font-display);
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      color: #fff;
+      border-bottom: 1px solid var(--panel-border);
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+      text-shadow: 0 0 5px rgba(0, 229, 255, 0.5);
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      background: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan);
+      border-radius: 50%;
+      animation: blink 2s infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .stat-row .label {
+      color: rgba(0, 229, 255, 0.7);
+    }
+
+    .stat-row .value {
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .bar-container {
+      width: 100%;
+      height: 5px;
+      background: rgba(0, 30, 60, 0.8);
+      border: 1px solid rgba(0, 229, 255, 0.2);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--blue), var(--cyan));
+      box-shadow: 0 0 8px var(--cyan);
+      transition: width 0.4s ease;
+    }
+
+    /* Center Stage */
+    .center-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      min-height: 420px;
+      overflow: hidden;
+    }
+
+    .reticle-container {
+      position: relative;
+      width: 320px;
+      height: 320px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .ring-outer, .ring-middle, .ring-inner {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px dashed rgba(0, 229, 255, 0.35);
+    }
+
+    .ring-outer {
+      width: 300px;
+      height: 300px;
+      animation: spin-cw 30s linear infinite;
+    }
+
+    .ring-middle {
+      width: 230px;
+      height: 230px;
+      border-style: solid;
+      border-color: rgba(0, 119, 255, 0.25);
+      animation: spin-ccw 20s linear infinite;
+    }
+
+    .ring-inner {
+      width: 160px;
+      height: 160px;
+      border-color: var(--cyan);
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.3);
+      animation: pulse 4s ease-in-out infinite;
+    }
+
+    @keyframes spin-cw {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes spin-ccw {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(-360deg); }
+    }
+
+    .bat-emblem {
+      width: 140px;
+      height: 70px;
+      z-index: 2;
+      filter: drop-shadow(0 0 12px rgba(0, 229, 255, 0.8));
+    }
+
+    /* Multi-Drawer Right Column */
+    .drawer-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+
+    .drawer-tab {
+      flex: 1;
+      background: rgba(0, 20, 40, 0.6);
+      border: 1px solid var(--panel-border);
+      color: rgba(0, 229, 255, 0.7);
+      font-family: var(--font-display);
+      font-size: 9px;
+      font-weight: 700;
+      padding: 6px 2px;
+      text-align: center;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all 0.2s;
+    }
+
+    .drawer-tab.active {
+      background: rgba(0, 229, 255, 0.2);
+      border-color: var(--cyan);
+      color: #fff;
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+    }
+
+    .drawer-content {
+      display: none;
+      max-height: 380px;
+      overflow-y: auto;
+      font-size: 11px;
+    }
+
+    .drawer-content.active {
+      display: block;
+    }
+
+    .note-item, .calendar-item, .memory-item {
+      background: rgba(0, 15, 30, 0.6);
+      border: 1px solid rgba(0, 229, 255, 0.2);
+      padding: 8px;
+      margin-bottom: 8px;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .note-item:hover, .calendar-item:hover, .memory-item:hover {
+      border-color: var(--cyan);
+    }
+
+    /* Alfred Voice Core Bottom Panel */
+    .alfred-core {
+      grid-column: 1 / -1;
+      background: rgba(1, 15, 28, 0.9);
+      border: 1px solid var(--panel-border);
+      padding: 16px;
+      border-radius: 4px;
+      display: grid;
+      grid-template-columns: 260px 1fr 280px;
+      gap: 16px;
+      align-items: center;
+    }
+
+    @media (max-width: 1100px) {
+      .alfred-core {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .visualizer-box {
+      width: 100%;
+      height: 64px;
+      background: rgba(0, 10, 20, 0.8);
+      border: 1px solid var(--panel-border);
+      position: relative;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    canvas#audioVisualizer {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .input-bar {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    .hud-input {
+      flex: 1;
+      background: rgba(0, 20, 40, 0.9);
+      border: 1px solid var(--panel-border);
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      padding: 10px 14px;
+      border-radius: 2px;
+      outline: none;
+    }
+
+    .hud-input:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+    }
+
+    .hud-btn {
+      background: rgba(0, 40, 80, 0.8);
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      padding: 0 16px;
+      cursor: pointer;
+      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+      text-transform: uppercase;
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+    }
+
+    .hud-btn:hover {
+      background: var(--cyan);
+      color: #000;
+      box-shadow: var(--glow-strong);
+    }
+
+    .hud-btn.recording {
+      background: #ff2244;
+      border-color: #ff2244;
+      color: #fff;
+      animation: pulse 1s infinite;
+    }
+
+    .alfred-speech-bubble {
+      font-size: 12px;
+      color: #fff;
+      line-height: 1.4;
+      min-height: 36px;
+      background: rgba(0, 25, 45, 0.6);
+      border-left: 2px solid var(--cyan);
+      padding: 8px 12px;
+      border-radius: 0 2px 2px 0;
+    }
+
+    .status-badge {
+      font-size: 9px;
+      background: rgba(0, 229, 255, 0.1);
+      border: 1px solid var(--cyan);
+      padding: 2px 6px;
+      border-radius: 2px;
+      color: var(--cyan);
+    }
+  
+    /* Center Background Batman Insignia Watermark */
+    .bat-watermark {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 72vw;
+      max-width: 1050px;
+      height: auto;
+      pointer-events: none;
+      z-index: 1; /* Sits behind HUD panels (z-index 10) */
+      opacity: 0.38;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.5s ease;
+      animation: batWatermarkGlow 6s ease-in-out infinite alternate;
+    }
+    .bat-watermark svg {
+      width: 100%;
+      height: auto;
+      overflow: visible;
+    }
+    @keyframes batWatermarkGlow {
+      0% {
+        opacity: 0.30;
+        filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.35)) drop-shadow(0 0 35px rgba(0, 240, 255, 0.18));
+      }
+      50% {
+        opacity: 0.45;
+        filter: drop-shadow(0 0 24px rgba(0, 240, 255, 0.65)) drop-shadow(0 0 55px rgba(0, 240, 255, 0.32));
+      }
+      100% {
+        opacity: 0.34;
+        filter: drop-shadow(0 0 15px rgba(0, 240, 255, 0.4)) drop-shadow(0 0 40px rgba(0, 240, 255, 0.22));
+      }
+    }
+
+    /* Container z-index positioning so panels sit over watermark */
+    header { z-index: 20; position: relative; }
+    .grid { z-index: 10; position: relative; }
+    .drawer-content { z-index: 15; }
+
+    /* Smart Home Devices Grid */
+    .device-card {
+      background: rgba(0, 20, 35, 0.7);
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: border-color 0.2s;
+    }
+    .device-card:hover {
+      border-color: var(--cyan);
+    }
+    .device-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .device-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .device-status-badge {
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .badge-on {
+      background: rgba(0, 255, 136, 0.15);
+      border: 1px solid #00ff88;
+      color: #00ff88;
+      box-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+    }
+    .badge-off {
+      background: rgba(100, 100, 100, 0.2);
+      border: 1px solid #555;
+      color: #888;
+    }
+    .sync-bar {
+      display: flex;
+      gap: 6px;
+      background: rgba(0, 25, 45, 0.6);
+      border: 1px solid var(--panel-border);
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+    .sync-input {
+      flex: 1;
+      background: rgba(0, 10, 20, 0.8);
+      border: 1px solid var(--panel-border);
+      color: #fff;
+      padding: 4px 8px;
+      font-family: inherit;
+      font-size: 10px;
+      border-radius: 2px;
+    }
+    .sync-input:focus {
+      outline: none;
+      border-color: var(--cyan);
+    }
+
+  </style>
+</head>
+<body>
+
+  <!-- Glowing Center Background Batman Insignia Watermark (Wayne Tech HUD) -->
+  <div class="bat-watermark" id="batWatermark">
+    <svg viewBox="0 0 1000 550" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="batGlowFilter" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur1" />
+          <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur2" />
+          <feGaussianBlur in="SourceGraphic" stdDeviation="40" result="blur3" />
+          <feMerge>
+            <feMergeNode in="blur3" />
+            <feMergeNode in="blur2" />
+            <feMergeNode in="blur1" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+        <linearGradient id="batGlowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.32" />
+          <stop offset="45%" stop-color="#0088ff" stop-opacity="0.18" />
+          <stop offset="100%" stop-color="#001530" stop-opacity="0.06" />
+        </linearGradient>
+      </defs>
+
+      <!-- Tactical Reticle & Radar Rings behind Insignia -->
+      <circle cx="500" cy="310" r="230" fill="none" stroke="rgba(0, 240, 255, 0.12)" stroke-width="1.2" stroke-dasharray="4,8" />
+      <circle cx="500" cy="310" r="330" fill="none" stroke="rgba(0, 240, 255, 0.08)" stroke-width="1.2" stroke-dasharray="10,14" />
+      <circle cx="500" cy="310" r="410" fill="none" stroke="rgba(0, 240, 255, 0.05)" stroke-width="0.8" />
+      <line x1="80" y1="310" x2="920" y2="310" stroke="rgba(0, 240, 255, 0.10)" stroke-width="1" stroke-dasharray="3,6" />
+      <line x1="500" y1="60" x2="500" y2="520" stroke="rgba(0, 240, 255, 0.10)" stroke-width="1" stroke-dasharray="3,6" />
+
+      <!-- Arkham Batman Crest Vector -->
+      <path d="M 500,195 L 510,135 L 528,198 C 585,195 670,190 760,130 C 760,190 735,260 670,305 C 765,300 840,335 910,410 C 830,415 745,395 680,360 C 700,430 655,485 580,505 C 555,445 525,410 500,410 C 475,410 445,445 420,505 C 345,485 300,430 320,360 C 255,395 170,415 90,410 C 160,335 235,300 330,305 C 265,260 240,190 240,130 C 330,190 415,195 472,198 L 490,135 Z"
+            fill="url(#batGlowGrad)"
+            stroke="#00f0ff"
+            stroke-width="3"
+            stroke-linejoin="round"
+            filter="url(#batGlowFilter)" />
+
+      <!-- Inner Crest Highlight Line -->
+      <path d="M 500,210 L 507,160 L 522,212 C 570,210 645,205 725,155 C 725,200 705,255 650,295 C 730,290 795,320 855,385 C 790,390 720,375 665,345 C 680,400 645,445 580,465 C 555,418 530,390 500,390 C 470,390 445,418 420,465 C 355,445 320,400 335,345 C 280,375 210,390 145,385 C 205,320 270,290 350,295 C 295,255 275,200 275,155 C 355,205 430,210 478,212 L 493,160 Z"
+            fill="none"
+            stroke="rgba(0, 240, 255, 0.45)"
+            stroke-width="1.2"
+            stroke-dasharray="6,4" />
+    </svg>
+  </div>
+
+
+  <!-- Top Header Navigation -->
+  <header>
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="var(--cyan)">
+        <polygon points="12,2 22,20 2,20" fill="none" stroke="var(--cyan)" stroke-width="2"/>
+        <circle cx="12" cy="14" r="3" fill="var(--cyan)"/>
+      </svg>
+      <span>WAYNE ENTERPRISES</span>
+      <span class="brand-tag">JARVIS CORE</span>
+    </div>
+
+    <div class="header-center">
+      <div>
+        <span>BRAIN:</span>
+        <select id="modelSelect" class="header-select" onchange="changeModel(this.value)">
+          <option value="qwen2.5:7b">Qwen 2.5 7B</option>
+        </select>
+      </div>
+      <div>
+        <span>VOICE:</span>
+        <select id="voiceSelect" class="header-select" onchange="changeVoice(this.value)">
+          <option value="daniel">Daniel (Butler)</option>
+        </select>
+      </div>
+      <div class="header-metric">
+        <span>UPTIME:</span>
+        <span class="val" id="sysUptime">00:00:00</span>
+      </div>
+    </div>
+
+    <div class="clock" id="liveClock">00:00:00</div>
+  </header>
+
+  <!-- Main HUD Grid -->
+  <div class="hud-grid">
+
+    <!-- LEFT COLUMN: Telemetry & Smart Home Controls -->
+    <div style="display:flex; flex-direction:column; gap:16px;">
+      
+      <!-- Hardware Telemetry -->
+      <div class="panel">
+        <div class="panel-header">
+          <span>// HARDWARE // M1 SILICON</span>
+          <div class="dot"></div>
+        </div>
+        <div class="stat-row">
+          <span class="label">CPU LOAD</span>
+          <span class="value" id="cpuPct">5.0%</span>
+        </div>
+        <div class="bar-container"><div class="bar-fill" id="cpuBar" style="width: 5%;"></div></div>
+
+        <div class="stat-row">
+          <span class="label">UNIFIED RAM</span>
+          <span class="value" id="memUsage">4.2G / 8.0G</span>
+        </div>
+        <div class="bar-container"><div class="bar-fill" id="memBar" style="width: 55%;"></div></div>
+
+        <div class="stat-row">
+          <span class="label">STORAGE (/)</span>
+          <span class="value" id="diskUsage">140G FREE</span>
+        </div>
+        <div class="bar-container"><div class="bar-fill" id="diskBar" style="width: 15%;"></div></div>
+      </div>
+
+      <!-- Batcave & Home Assistant Smart Hub -->
+      <div class="panel">
+        <div class="panel-header">
+          <span>// BATCAVE & SMART HOME HUB</span>
+          <div class="dot"></div>
+        </div>
+
+        <!-- Sony BRAVIA 85" Display -->
+        <div class="stat-row" style="margin-top:4px;">
+          <span class="label">BRAVIA 85" TV</span>
+          <span class="value" id="tvState" style="color:var(--cyan); font-weight:700;">LIVE CONNECTED</span>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button class="hud-btn" style="flex:1.2; font-size:9px; height:26px;" onclick="controlDevice('media_player', 'toggle', 'media_player.tv_sala_2')">TOGGLE POWER</button>
+          <button class="hud-btn" style="flex:0.8; font-size:9px; height:26px;" onclick="controlDevice('media_player', 'volume_mute', 'media_player.tv_sala_2', {is_volume_muted: true})">MUTE</button>
+        </div>
+
+        <!-- Server & Home Thermostat -->
+        <div class="stat-row" style="margin-top:10px;">
+          <span class="label">CLIMATE / THERMO</span>
+          <span class="value" id="thermoTemp" style="color:#00ff88; font-weight:700;">72.5°F (COOLING)</span>
+        </div>
+        <div class="stat-row">
+          <span class="label">HUMIDITY</span>
+          <span class="value" id="thermoHumidity">61.3% RH</span>
+        </div>
+
+        <!-- Quarters Lighting -->
+        <div class="stat-row" style="margin-top:8px;">
+          <span class="label">LIGHTING MATRIX</span>
+          <span class="value" id="lightsSummary" style="color:var(--cyan);">SYNCED</span>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button class="hud-btn" style="flex:1; font-size:9px; height:24px;" onclick="controlDevice('light', 'toggle', 'light.dimmer_cuarto_jm')">JM ROOM</button>
+          <button class="hud-btn" style="flex:1; font-size:9px; height:24px;" onclick="controlDevice('light', 'toggle', 'light.luz_sala')">LIVING ROOM</button>
+          <button class="hud-btn" style="flex:1; font-size:9px; height:24px;" onclick="controlDevice('light', 'toggle', 'light.home_theater')">THEATER</button>
+        </div>
+
+        <!-- Quick Drawer Switch -->
+        <div style="margin-top:10px;">
+          <button class="hud-btn" style="width:100%; font-size:10px; height:26px; border-color:var(--cyan);" onclick="switchDrawer('home')">OPEN SMART HOME VAULT ⤢</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- CENTER STAGE: Targeting Reticle & Insignia -->
+    <div class="panel center-stage">
+      <div class="reticle-container">
+        <div class="ring-outer"></div>
+        <div class="ring-middle"></div>
+        <div class="ring-inner"></div>
+
+        <svg class="bat-emblem" viewBox="0 0 1000 480" xmlns="http://www.w3.org/2000/svg">
+          <path d="M 500,20 C 530,120 620,130 680,80 C 730,180 880,180 1000,160 C 950,290 820,380 670,390 C 720,440 680,470 630,470 C 570,380 540,360 500,380 C 460,360 430,380 370,470 C 320,470 280,440 330,390 C 180,380 50,290 0,160 C 120,180 270,180 320,80 C 380,130 470,120 500,20 Z" fill="none" stroke="var(--cyan)" stroke-width="16" stroke-linejoin="round"/>
+          <path d="M 500,45 C 525,130 610,140 660,100 C 710,190 850,190 960,175 C 910,285 790,365 650,375 C 700,420 660,450 620,450 C 560,370 535,350 500,365 C 465,350 440,370 380,450 C 340,450 300,420 350,375 C 210,365 90,285 40,175 C 150,190 290,190 340,100 C 390,140 475,130 500,45 Z" fill="rgba(0, 229, 255, 0.15)"/>
+        </svg>
+      </div>
+
+      <div style="display:flex; gap:20px; margin-top:16px; width:100%; justify-content:center;">
+        <div style="background:rgba(0,20,40,0.8); border:1px solid var(--panel-border); padding:8px 16px; border-radius:2px; text-align:center; flex:1; max-width:200px;">
+          <div style="font-size:9px; color:rgba(0,229,255,0.7);">ARKHAM PROGRESS</div>
+          <div style="font-size:16px; font-weight:800; color:#fff;">72%</div>
+        </div>
+        <div style="background:rgba(0,20,40,0.8); border:1px solid var(--panel-border); padding:8px 16px; border-radius:2px; text-align:center; flex:1; max-width:200px;">
+          <div style="font-size:9px; color:rgba(0,229,255,0.7);">RIDDLER TROPHIES</div>
+          <div style="font-size:16px; font-weight:800; color:#44ff88; text-shadow:0 0 10px #44ff88;">440 / 440</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN: Multi-Drawer (Second Brain, Calendar, Reverse Engineer) -->
+    <div class="panel" style="display:flex; flex-direction:column;">
+      <div class="panel-header">
+        <span>// TACTICAL INTELLIGENCE DRAWER</span>
+      </div>
+
+      <div class="drawer-tabs">
+        <div class="drawer-tab active" onclick="switchDrawer('brain')">SECOND BRAIN</div>
+        <div class="drawer-tab" onclick="switchDrawer('calendar')">AGENDA</div>
+        <div class="drawer-tab" onclick="switchDrawer('home')">SMART HOME</div>
+        <div class="drawer-tab" onclick="switchDrawer('clone')">VOICE CLONE</div>
+        <div class="drawer-tab" onclick="switchDrawer('memory')">MEMORY</div>
+        <div class="drawer-tab" onclick="switchDrawer('reverse')">TEARDOWN</div>
+      </div>
+
+      <!-- Second Brain Tab -->
+      <div id="drawer-brain" class="drawer-content active">
+        <div style="font-size:10px; margin-bottom:8px; color:rgba(0,229,255,0.7);">LOCAL KNOWLEDGE VAULT</div>
+        <div id="brainNotesList">Loading notes...</div>
+      </div>
+
+      <!-- Calendar Agenda Tab (With Google & Personal Calendar Sync) -->
+      <div id="drawer-calendar" class="drawer-content">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="font-size:10px; color:rgba(0,229,255,0.7);">// PERSONAL CALENDAR & TACTICAL SCHEDULE</div>
+          <span id="calSyncStatus" style="font-size:9px; color:#00ff88;">SYNCED</span>
+        </div>
+
+        <!-- Calendar Sync URL Bar -->
+        <div class="sync-bar">
+          <input type="text" id="calUrlInput" class="sync-input" placeholder="Paste Google Calendar / iCloud .ics or webcal:// feed URL" />
+          <button class="hud-btn" style="font-size:10px; padding:0 10px; height:24px;" onclick="syncCalendarUrl()">SYNC FEED</button>
+        </div>
+
+        <div id="calendarList" style="max-height:220px; overflow-y:auto;">Loading personal calendar...</div>
+      </div>
+
+      <!-- Smart Home Device Hub Tab -->
+      <div id="drawer-home" class="drawer-content">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div style="font-size:10px; color:rgba(0,229,255,0.7);">// HOME ASSISTANT FLEET APPLIANCES & SENSORS</div>
+          <button class="hud-btn" style="font-size:9px; height:22px; padding:0 8px;" onclick="loadSmartHomeDrawer()">REFRESH</button>
+        </div>
+        <div id="smartHomeDevicesList" style="max-height:240px; overflow-y:auto;">
+          <div style="color:#888; font-size:11px;">Querying Home Assistant devices...</div>
+        </div>
+      </div>
+
+      <!-- Voice Cloning Studio Tab -->
+      <div id="drawer-clone" class="drawer-content">
+        <div style="font-size:10px; color:rgba(0,229,255,0.7); margin-bottom:8px;">// ZERO-SHOT VOICE CLONING (MICHAEL CAINE / CUSTOM)</div>
+        <div style="background:rgba(0,20,35,0.7); border:1px solid var(--panel-border); border-radius:4px; padding:12px; margin-bottom:12px;">
+          <div style="font-size:11px; color:#fff; font-weight:700; margin-bottom:6px;">Target Voice Identity</div>
+          <div style="display:flex; gap:8px; margin-bottom:10px;">
+            <input type="text" id="cloneName" class="sync-input" placeholder="Display Name (e.g. Michael Caine)" value="Michael Caine" />
+            <input type="text" id="cloneId" class="sync-input" placeholder="Voice ID (e.g. michael_caine)" value="michael_caine" style="max-width:140px;" />
+          </div>
+          <div style="font-size:11px; color:#fff; font-weight:700; margin-bottom:6px;">Select Audio or Video Clip (15s - 60s)</div>
+          <input type="file" id="cloneFile" accept="audio/*,video/*" style="font-size:11px; color:var(--cyan); margin-bottom:10px; width:100%;" />
+          <button class="hud-btn" style="width:100%; height:32px; font-size:11px; font-weight:700;" onclick="executeVoiceClone()">CLONE VOICE PROFILE</button>
+          <div id="cloneStatus" style="margin-top:10px; font-size:10px; color:#888;">Ready to clone audio sample into VoiceStudio.</div>
+        </div>
+      </div>
+
+      <!-- Reverse Engineer Tab -->
+      <div id="drawer-reverse" class="drawer-content">
+        <div style="font-size:10px; margin-bottom:6px; color:rgba(0,229,255,0.7);">WEB ARCHITECTURE REVERSE ENGINEER</div>
+        <input type="text" id="reUrlInput" class="hud-input" placeholder="https://example.com" style="margin-bottom:8px; font-size:11px; width:100%;" />
+        <button class="hud-btn" style="width:100%; height:28px; font-size:10px; margin-bottom:8px;" onclick="runReverseEngineer()">EXECUTE TEARDOWN</button>
+        <div id="reReportOutput" style="font-size:10px; line-height:1.4; white-space:pre-wrap; background:rgba(0,10,20,0.9); padding:8px; border:1px solid var(--panel-border); max-height:220px; overflow-y:auto;">Enter target URL above and click execute...</div>
+      </div>
+
+      <!-- Memory Vault Tab -->
+      <div id="drawer-memory" class="drawer-content">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="font-size:10px; color:rgba(0,229,255,0.7);">PERSISTENT LONG-TERM MEMORY</div>
+          <button class="hud-btn" style="height:20px; font-size:9px; padding:0 6px;" onclick="purgeWorkingBuffer()">PURGE BUFFER</button>
+        </div>
+        <div id="memoryList" style="max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">Loading memory...</div>
+        
+        <div style="display:flex; gap:4px; margin-bottom:4px;">
+          <input type="text" id="newMemFact" class="hud-input" placeholder="New memory fact (e.g. Master prefers...)" style="flex:1; font-size:10px;" />
+          <button class="hud-btn" style="height:26px; font-size:9px;" onclick="addMemoryFromUI()">RECORD</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM ROW: Alfred Voice AI Terminal & Oscilloscope -->
+    <div class="alfred-core">
+      <div>
+        <div style="font-size:10px; margin-bottom:4px; display:flex; justify-content:space-between;">
+          <span>OSCILLOSCOPE</span>
+          <span class="status-badge" id="audioState">STANDBY</span>
+        </div>
+        <div class="visualizer-box">
+          <canvas id="audioVisualizer"></canvas>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        <div class="alfred-speech-bubble" id="alfredOutput">
+          "Good day, Master Bruce. All Batcave telemetry links, local neural models, and audio synthesis pipelines are operational. Standing by for your instructions, sir."
+        </div>
+        <div class="input-bar">
+          <input type="text" id="cmdInput" class="hud-input" placeholder="Issue directive to Alfred (e.g. 'What is on my schedule?', 'Turn on the TV', 'Reverse engineer https://...')..." />
+          <button id="sendBtn" class="hud-btn">EXECUTE</button>
+          <button id="micBtn" class="hud-btn">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+            </svg>
+            MIC
+          </button>
+          <button id="liveCommBtn" class="hud-btn" style="border-color: rgba(0, 229, 255, 0.4); background: rgba(0, 229, 255, 0.05); min-width: 110px;" title="Continuous live conversation mode">
+            <span id="liveCommDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:rgba(0,229,255,0.4); margin-right:5px; vertical-align:middle;"></span>
+            LIVE COMM
+          </button>
+          <button id="wakeBtn" class="hud-btn" onclick="toggleWakeWord()" style="border-color: rgba(0, 229, 255, 0.4); background: rgba(0, 229, 255, 0.05); min-width: 140px;" title="Voice Wake Word: Say 'Alfred' or 'Hey Alfred' to command hands-free">
+            <span id="wakeDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:rgba(0,229,255,0.4); margin-right:5px; vertical-align:middle;"></span>
+            WAKE: "ALFRED"
+          </button>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        <div style="font-size:10px; color:#fff; letter-spacing:1px;">QUICK DIRECTIVES</div>
+        <button class="hud-btn" style="width:100%; height:26px; font-size:10px;" onclick="triggerQuick('What is on my schedule today?')">CHECK SCHEDULE</button>
+        <button class="hud-btn" style="width:100%; height:26px; font-size:10px;" onclick="triggerQuick('Turn on the tv')">POWER ON TV</button>
+        <button class="hud-btn" style="width:100%; height:26px; font-size:10px;" onclick="triggerQuick('Status report')">SYSTEM STATUS</button>
+      </div>
+    </div>
+
+  </div>
+
+  <audio id="alfredAudio" style="display:none;"></audio>
+
+  <script>
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    let analyser = null;
+    let audioSource = null;
+    let mediaRecorder = null;
+    let audioChunks = [];
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new AudioContext();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 64;
+        const audioElement = document.getElementById('alfredAudio');
+        audioSource = audioCtx.createMediaElementSource(audioElement);
+        audioSource.connect(analyser);
+        analyser.connect(audioCtx.destination);
+        drawVisualizer();
+      }
+    }
+
+    function playBeep(freq = 880, type = 'sine', duration = 0.08) {
+      try {
+        if (!audioCtx) audioCtx = new AudioContext();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    const canvas = document.getElementById('audioVisualizer');
+    const ctx = canvas.getContext('2d');
+
+    function drawVisualizer() {
+      requestAnimationFrame(drawVisualizer);
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
+
+      const bufferLength = analyser ? analyser.frequencyBinCount : 32;
+      const dataArray = new Uint8Array(bufferLength);
+
+      if (analyser) {
+        analyser.getByteFrequencyData(dataArray);
+      } else {
+        for (let i = 0; i < bufferLength; i++) {
+          dataArray[i] = Math.sin(Date.now() / 300 + i) * 12 + 10;
+        }
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const barWidth = (canvas.width / bufferLength) * 1.4;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const barHeight = (dataArray[i] / 255) * canvas.height;
+        const grad = ctx.createLinearGradient(0, canvas.height, 0, 0);
+        grad.addColorStop(0, '#0077ff');
+        grad.addColorStop(1, '#00e5ff');
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
+        x += barWidth;
+      }
+    }
+    drawVisualizer();
+
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('liveClock').innerText = now.toTimeString().split(' ')[0];
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    async function loadConfigOptions() {
+      try {
+        const mRes = await fetch('/api/models');
+        const mData = await mRes.json();
+        const mSel = document.getElementById('modelSelect');
+        mSel.innerHTML = '';
+
+        if (mData.omniroute_models && mData.omniroute_models.length > 0) {
+          const ogOmni = document.createElement('optgroup');
+          ogOmni.label = '⚡ OMNIROUTE (ANTIGRAVITY)';
+          mData.omniroute_models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.innerText = m;
+            if (m === mData.current_model) opt.selected = true;
+            ogOmni.appendChild(opt);
+          });
+          mSel.appendChild(ogOmni);
+        }
+
+        if (mData.ollama_models && mData.ollama_models.length > 0) {
+          const ogLocal = document.createElement('optgroup');
+          ogLocal.label = '💾 LOCAL OLLAMA';
+          mData.ollama_models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.innerText = m;
+            if (m === mData.current_model) opt.selected = true;
+            ogLocal.appendChild(opt);
+          });
+          mSel.appendChild(ogLocal);
+        }
+
+        const vRes = await fetch('/api/voices');
+        const vData = await vRes.json();
+        const vSel = document.getElementById('voiceSelect');
+        vSel.innerHTML = '';
+        const savedVoice = localStorage.getItem('batcomputer_voice') || vData.current_voice || 'michael_caine';
+        vData.available_voices.forEach(v => {
+          const opt = document.createElement('option');
+          opt.value = v.id;
+          opt.innerText = v.name;
+          if (v.id === savedVoice) opt.selected = true;
+          vSel.appendChild(opt);
+        });
+      } catch (e) {}
+    }
+    loadConfigOptions();
+
+    async function changeModel(model) {
+      await fetch('/api/models/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model })
+      });
+      playBeep(990, 'sine', 0.05);
+    }
+
+    async function changeVoice(voice) {
+      localStorage.setItem('batcomputer_voice', voice);
+      try {
+        await fetch('/api/voices/set', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ voice })
+        });
+      } catch (e) {}
+      playBeep(880, 'sine', 0.05);
+    }
+
+    function playAlfredAudio(audioUrl) {
+      const audio = document.getElementById('alfredAudio');
+      if (!audio) return;
+      isAlfredSpeaking = true;
+      if (wakeRecognizer && isWakeActive) {
+        try { wakeRecognizer.stop(); } catch(e) {}
+      }
+      audio.src = audioUrl;
+      document.getElementById('audioState').innerText = 'SPEAKING';
+      
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          console.warn('Autoplay blocked by browser policy:', err);
+          document.getElementById('audioState').innerText = 'TAP TO PLAY';
+          const outputEl = document.getElementById('alfredOutput');
+          const existingBtn = document.getElementById('tapPlayBtn');
+          if (existingBtn) existingBtn.remove();
+          const tapBtn = document.createElement('button');
+          tapBtn.id = 'tapPlayBtn';
+          tapBtn.className = 'hud-btn';
+          tapBtn.style.cssText = 'display:inline-block; margin-top:8px; border-color:var(--cyan); background:rgba(0,229,255,0.15); color:var(--cyan); padding:4px 10px; font-size:11px; cursor:pointer;';
+          tapBtn.innerHTML = '🔊 TAP TO HEAR ALFRED';
+          tapBtn.onclick = () => { audio.play(); tapBtn.remove(); };
+          outputEl.appendChild(document.createElement('br'));
+          outputEl.appendChild(tapBtn);
+        });
+      }
+
+      audio.onended = () => {
+        isAlfredSpeaking = false;
+        document.getElementById('audioState').innerText = 'STANDBY';
+        const tapBtn = document.getElementById('tapPlayBtn');
+        if (tapBtn) tapBtn.remove();
+        if (isLiveComm) {
+          setTimeout(() => {
+            if (isLiveComm) startLiveListening();
+          }, 500);
+        }
+        if (isWakeActive && wakeRecognizer) {
+          setTimeout(() => {
+            if (isWakeActive && !isAlfredSpeaking) {
+              const dot = document.getElementById('wakeDot');
+              if (dot) { dot.style.background = 'var(--cyan)'; dot.style.boxShadow = '0 0 8px var(--cyan)'; }
+              try { wakeRecognizer.start(); } catch(e) {}
+            }
+          }, 400);
+        }
+      };
+    }
+
+
+    // ==========================================
+    // SMART HOME HUB & DEVICE ACTIONS
+    // ==========================================
+    async function controlDevice(domain, service, entityId, extra = {}) {
+      try {
+        const res = await fetch('/api/smart-home/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain, service, entity_id: entityId, extra })
+        });
+        const data = await res.json();
+        fetchTelemetry();
+        if (document.getElementById('drawer-home').classList.contains('active')) {
+          loadSmartHomeDrawer();
+        }
+      } catch (e) {
+        console.error('Control error:', e);
+      }
+    }
+
+    async function loadSmartHomeDrawer() {
+      const container = document.getElementById('smartHomeDevicesList');
+      try {
+        const res = await fetch('/api/smart-home/devices');
+        const data = await res.json();
+        
+        let htmlStr = '';
+        
+        // 1. Sony BRAVIA TV & Sonos
+        const tv = data.tv || {};
+        const tvIsOn = tv.state === 'on';
+        htmlStr += `
+          <div class="device-card">
+            <div class="device-row">
+              <span class="device-title">📺 ${tv.name || 'Sony BRAVIA 85" Display'}</span>
+              <span class="device-status-badge ${tvIsOn ? 'badge-on' : 'badge-off'}">${tv.state || 'off'}</span>
+            </div>
+            <div style="font-size:9px; color:#888;">Entity: ${tv.entity_id} | Vol: ${tv.volume || 30}%</div>
+            <div style="display:flex; gap:6px; margin-top:4px;">
+              <button class="hud-btn" style="flex:1; font-size:9px; height:24px;" onclick="controlDevice('media_player', 'toggle', '${tv.entity_id}')">${tvIsOn ? 'POWER OFF' : 'POWER ON'}</button>
+              <button class="hud-btn" style="flex:1; font-size:9px; height:24px;" onclick="controlDevice('media_player', 'volume_mute', '${tv.entity_id}', {is_volume_muted: true})">MUTE</button>
+            </div>
+          </div>
+        `;
+
+        // 2. Thermostat
+        const th = data.thermostat || {};
+        htmlStr += `
+          <div class="device-card">
+            <div class="device-row">
+              <span class="device-title">❄️ ${th.name || 'Home Thermostat'}</span>
+              <span class="device-status-badge badge-on">${th.temp_f || 72}°F</span>
+            </div>
+            <div style="font-size:9px; color:#888;">HVAC Action: <span style="color:#00ff88;">${th.action || 'Cooling'}</span> | Humidity: ${th.humidity || 60}%</div>
+            <div style="font-size:9px; color:#aaa; margin-top:2px;">Entity: ${th.entity_id}</div>
+          </div>
+        `;
+
+        // 3. Lighting Matrix
+        if (data.lights && data.lights.length > 0) {
+          htmlStr += `<div style="font-size:10px; color:rgba(0,229,255,0.7); margin:8px 0 4px 0;">// LIGHTING ARRAYS</div>`;
+          data.lights.forEach(l => {
+            const isOn = l.state === 'on';
+            htmlStr += `
+              <div class="device-card" style="padding:8px 10px; margin-bottom:6px;">
+                <div class="device-row">
+                  <span class="device-title">💡 ${l.name}</span>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <span class="device-status-badge ${isOn ? 'badge-on' : 'badge-off'}">${l.state}</span>
+                    <button class="hud-btn" style="font-size:9px; height:22px; padding:0 8px;" onclick="controlDevice('light', 'toggle', '${l.entity_id}')">TOGGLE</button>
+                  </div>
+                </div>
+              </div>
+            `;
+          });
+        }
+
+        // 4. Fans & Switches
+        if (data.switches && data.switches.length > 0) {
+          htmlStr += `<div style="font-size:10px; color:rgba(0,229,255,0.7); margin:8px 0 4px 0;">// VENTILATION & SWITCHES</div>`;
+          data.switches.forEach(s => {
+            const isOn = s.state === 'on';
+            htmlStr += `
+              <div class="device-card" style="padding:8px 10px; margin-bottom:6px;">
+                <div class="device-row">
+                  <span class="device-title">🌀 ${s.name}</span>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <span class="device-status-badge ${isOn ? 'badge-on' : 'badge-off'}">${s.state}</span>
+                    <button class="hud-btn" style="font-size:9px; height:22px; padding:0 8px;" onclick="controlDevice('switch', 'toggle', '${s.entity_id}')">TOGGLE</button>
+                  </div>
+                </div>
+              </div>
+            `;
+          });
+        }
+
+        container.innerHTML = htmlStr;
+      } catch (e) {
+        container.innerHTML = `<div style="color:#ff4444; font-size:11px;">Error loading devices: ${e.message}</div>`;
+      }
+    }
+
+    // ==========================================
+    // CALENDAR SYNC ENGINE
+    // ==========================================
+    async function syncCalendarUrl() {
+      const url = document.getElementById('calUrlInput').value.trim();
+      const statusEl = document.getElementById('calSyncStatus');
+      statusEl.innerText = 'SYNCING...';
+      statusEl.style.color = 'var(--cyan)';
+      try {
+        const res = await fetch('/api/calendar/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        statusEl.innerText = `SYNCED (${data.count} EVENTS)`;
+        statusEl.style.color = '#00ff88';
+        loadCalendarAgenda();
+      } catch (e) {
+        statusEl.innerText = 'SYNC ERROR';
+        statusEl.style.color = '#ff4444';
+      }
+    }
+
+    // ==========================================
+    // VOICE CLONING (MICHAEL CAINE / CUSTOM)
+    // ==========================================
+    async function executeVoiceClone() {
+      const name = document.getElementById('cloneName').value.trim();
+      const voiceId = document.getElementById('cloneId').value.trim();
+      const fileInput = document.getElementById('cloneFile');
+      const statusEl = document.getElementById('cloneStatus');
+
+      if (!fileInput.files || fileInput.files.length === 0) {
+        alert('Please select a 15-60s video or audio file first.');
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('name', name);
+      formData.append('voice_id', voiceId);
+
+      statusEl.innerHTML = '<span style="color:var(--cyan);">[1/3] Extracting 24kHz audio and transcribing via Faster-Whisper...</span>';
+
+      try {
+        const res = await fetch('/api/voice/clone', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+          statusEl.innerHTML = `<span style="color:#00ff88; font-weight:700;">✓ Voice Cloned Successfully! Profile ID: ${data.profile_id}</span><br><span style="color:#aaa;">Transcribed: "${data.transcript}"</span>`;
+          loadConfigOptions(); // reload voices dropdown
+        } else {
+          statusEl.innerHTML = `<span style="color:#ff4444;">Cloning failed: ${data.detail || 'Unknown error'}</span>`;
+        }
+      } catch (e) {
+        statusEl.innerHTML = `<span style="color:#ff4444;">Network/Upload error: ${e.message}</span>`;
+      }
+    }
+
+    async function fetchTelemetry() {
+      try {
+        const res = await fetch('/api/telemetry');
+        const data = await res.json();
+        document.getElementById('cpuPct').innerText = data.cpu.percent + '%';
+        document.getElementById('cpuBar').style.width = Math.min(data.cpu.percent, 100) + '%';
+        document.getElementById('memUsage').innerText = data.memory.used_gb + 'G / ' + data.memory.total_gb + 'G';
+        document.getElementById('memBar').style.width = data.memory.percent + '%';
+        document.getElementById('diskUsage').innerText = (data.disk.total_gb - data.disk.used_gb).toFixed(0) + 'G FREE';
+        document.getElementById('diskBar').style.width = data.disk.percent + '%';
+        document.getElementById('netTailscale').innerText = data.network.tailscale_ip;
+        document.getElementById('netGateway').innerText = data.network.gateway;
+        document.getElementById('sysUptime').innerText = data.uptime.formatted;
+
+        // Fetch Home Assistant Smart Home Fleet State
+        const dRes = await fetch('/api/smart-home/devices');
+        const dData = await dRes.json();
+        if (dData.tv && document.getElementById('tvState')) {
+          const tvOn = dData.tv.state === 'on';
+          document.getElementById('tvState').innerText = (dData.tv.state || 'OFF').toUpperCase() + ' (BRAVIA 85")';
+          document.getElementById('tvState').style.color = tvOn ? '#00ff88' : '#888888';
+        }
+        if (dData.thermostat && document.getElementById('thermoTemp')) {
+          document.getElementById('thermoTemp').innerText = (dData.thermostat.temp_f || 72) + '°F (' + (dData.thermostat.action || 'COOLING').toUpperCase() + ')';
+          document.getElementById('thermoHumidity').innerText = (dData.thermostat.humidity || 60) + '% RH';
+        }
+        if (dData.lights && document.getElementById('lightsSummary')) {
+          const onCount = dData.lights.filter(l => l.state === 'on').length;
+          document.getElementById('lightsSummary').innerText = onCount + ' OF ' + dData.lights.length + ' ACTIVE';
+        }
+      } catch (e) {
+        console.error('Telemetry fetch error:', e);
+      }
+    }
+    setInterval(fetchTelemetry, 3000);
+    fetchTelemetry();
+
+    async function checkTV() {
+      try {
+        const res = await fetch('/api/smart-home/tv');
+        const data = await res.json();
+        document.getElementById('tvState').innerText = data.success ? data.state.toUpperCase() : 'OFFLINE';
+      } catch (e) {
+        document.getElementById('tvState').innerText = 'UNKNOWN';
+      }
+    }
+    checkTV();
+    setInterval(checkTV, 10000);
+
+    async function controlTV(action) {
+      playBeep(700, 'sine', 0.06);
+      try {
+        await fetch('/api/smart-home/tv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action })
+        });
+        setTimeout(checkTV, 1000);
+      } catch (e) {}
+    }
+
+    function switchDrawer(tab) {
+      document.querySelectorAll('.drawer-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.drawer-content').forEach(c => c.classList.remove('active'));
+      
+      const tabOrder = ['brain', 'calendar', 'home', 'clone', 'memory', 'reverse'];
+      const idx = tabOrder.indexOf(tab);
+      const allTabs = document.querySelectorAll('.drawer-tab');
+      if (idx !== -1 && allTabs[idx]) {
+        allTabs[idx].classList.add('active');
+      }
+      
+      const contentEl = document.getElementById('drawer-' + tab);
+      if (contentEl) contentEl.classList.add('active');
+
+      if (tab === 'brain') loadBrainNotes();
+      else if (tab === 'calendar') loadCalendarAgenda();
+      else if (tab === 'home') loadSmartHomeDrawer();
+      else if (tab === 'memory') (window.loadMemories || loadMemoryDrawer)();
+      
+      try { playBeep(1046, 'sine', 0.04); } catch (e) {}
+    }
+
+    async function loadMemories() {
+      try {
+        const res = await fetch('/api/memory');
+        const data = await res.json();
+        const listEl = document.getElementById('memoryList');
+        listEl.innerHTML = '';
+        if (!data.memories || data.memories.length === 0) {
+          listEl.innerHTML = '<div style="color:rgba(0,229,255,0.5);">No persistent memories recorded.</div>';
+          return;
+        }
+        data.memories.forEach(m => {
+          const div = document.createElement('div');
+          div.className = 'memory-item';
+          div.innerHTML = '<div style="flex:1;"><strong>[' + (m.category || 'FACT') + ']</strong> ' + m.fact + '<br><span style="font-size:9px; color:rgba(0,229,255,0.5);">' + (m.timestamp || '') + '</span></div><button class="hud-btn" style="color:#ff4444; border-color:#ff4444; height:18px; padding:0 4px; font-size:9px;" onclick="deleteMemory(\'' + m.id + '\')">×</button>';
+          listEl.appendChild(div);
+        });
+      } catch (e) {}
+    }
+
+    async function addMemoryFromUI() {
+      const fact = document.getElementById('newMemFact').value.trim();
+      if (!fact) return;
+      playBeep(800, 'sine', 0.04);
+      try {
+        await fetch('/api/memory/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fact: fact, category: 'Manual' })
+        });
+        document.getElementById('newMemFact').value = '';
+        loadMemories();
+      } catch (e) {}
+    }
+
+    async function deleteMemory(id) {
+      playBeep(500, 'sine', 0.04);
+      try {
+        await fetch('/api/memory/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id })
+        });
+        loadMemories();
+      } catch (e) {}
+    }
+
+    async function purgeWorkingBuffer() {
+      playBeep(400, 'sine', 0.05);
+      try {
+        await fetch('/api/history/clear', { method: 'POST' });
+        alert('Conversation working buffer purged.');
+      } catch (e) {}
+    }
+
+    async function loadBrainNotes() {
+      try {
+        const res = await fetch('/api/brain/list');
+        const data = await res.json();
+        const listEl = document.getElementById('brainNotesList');
+        listEl.innerHTML = '';
+        data.notes.forEach(n => {
+          const div = document.createElement('div');
+          div.className = 'note-item';
+          div.innerHTML = '<strong>📄 ' + n.name + '</strong><br><span style="color:rgba(0,229,255,0.6);">' + Math.round(n.size/1024) + ' KB</span>';
+          div.onclick = async () => {
+            const r = await fetch('/api/brain/file?name=' + encodeURIComponent(n.name));
+            const noteData = await r.json();
+            alert('--- ' + noteData.name + ' ---\\n\\n' + noteData.content);
+          };
+          listEl.appendChild(div);
+        });
+      } catch (e) {}
+    }
+    loadBrainNotes();
+
+    async function loadCalendarAgenda() {
+      try {
+        const res = await fetch('/api/calendar');
+        const data = await res.json();
+        const listEl = document.getElementById('calendarList');
+        listEl.innerHTML = '';
+        
+        if (data.config && data.config.ical_url) {
+          const inp = document.getElementById('calUrlInput');
+          if (inp && !inp.value) inp.value = data.config.ical_url;
+          const st = document.getElementById('calSyncStatus');
+          if (st) st.innerText = 'SYNCED: ' + (data.config.source || 'PERSONAL CALENDAR');
+        }
+
+        if (!data.events || data.events.length === 0) {
+          listEl.innerHTML = '<div style="color:#888; font-size:10px;">No events scheduled. Paste your calendar feed URL above.</div>';
+          return;
+        }
+
+        data.events.forEach(e => {
+          const div = document.createElement('div');
+          div.className = 'calendar-item';
+          const dateBadge = e.date && e.date !== 'Upcoming' ? '<span style="color:var(--cyan);">[' + e.date + '] </span>' : '';
+          const prioColor = e.priority === 'HIGH' || e.priority === 'CRITICAL' ? '#ff4444' : '#00ff88';
+          div.innerHTML = '<strong>⏰ ' + dateBadge + e.time + ' - ' + e.title + '</strong><br><span style="color:' + prioColor + ';">' + (e.priority || 'Personal') + '</span> // ' + (e.location || 'Tactical Site');
+          listEl.appendChild(div);
+        });
+      } catch (e) {
+        console.error('Calendar load error:', e);
+      }
+    }
+
+    async function runReverseEngineer() {
+      const url = document.getElementById('reUrlInput').value.trim();
+      if (!url) return alert('Please enter a target URL.');
+      const out = document.getElementById('reReportOutput');
+      out.innerText = 'Analyzing and reverse engineering ' + url + '...';
+      playBeep(880, 'sine', 0.05);
+
+      try {
+        const res = await fetch('/api/tools/reverse-engineer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        out.innerText = data.report || JSON.stringify(data, null, 2);
+      } catch (e) {
+        out.innerText = 'Reverse engineering analysis failed: ' + e.message;
+      }
+    }
+
+    async function sendCommand(message) {
+      if (!message.trim()) return;
+      initAudio();
+      playBeep(1200, 'sine', 0.05);
+
+      const outputEl = document.getElementById('alfredOutput');
+      outputEl.innerText = 'Processing directive, Master Bruce...';
+      document.getElementById('audioState').innerText = 'PROCESSING';
+
+      try {
+        const activeModel = document.getElementById('modelSelect').value;
+        const activeVoice = document.getElementById('voiceSelect').value;
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: message, model: activeModel, voice: activeVoice })
+        });
+        const data = await res.json();
+        outputEl.innerText = '"' + data.reply + '"';
+
+        if (data.audio_url) {
+          playAlfredAudio(data.audio_url);
+        }
+      } catch (e) {
+        outputEl.innerText = 'Communications link failed to respond, sir.';
+        document.getElementById('audioState').innerText = 'ERROR';
+      }
+    }
+
+    document.getElementById('sendBtn').onclick = () => {
+      const input = document.getElementById('cmdInput');
+      sendCommand(input.value);
+      input.value = '';
+    };
+
+    document.getElementById('cmdInput').onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('sendBtn').click();
+      }
+    };
+
+    function triggerQuick(text) {
+      document.getElementById('cmdInput').value = text;
+      document.getElementById('sendBtn').click();
+    }
+
+    let isLiveComm = false;
+    let isWakeActive = false;
+    let isAlfredSpeaking = false;
+    let wakeRecognizer = null;
+    const liveCommBtn = document.getElementById('liveCommBtn');
+    const liveCommDot = document.getElementById('liveCommDot');
+    const micBtn = document.getElementById('micBtn');
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let isRecognizing = false;
+
+    function initWakeWord() {
+      if (!SpeechRecognition) {
+        console.warn('SpeechRecognition not supported for wake word.');
+        return;
+      }
+      wakeRecognizer = new SpeechRecognition();
+      wakeRecognizer.continuous = true;
+      wakeRecognizer.interimResults = true;
+      wakeRecognizer.lang = 'en-US';
+
+      wakeRecognizer.onresult = (event) => {
+        if (isAlfredSpeaking) return;
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          transcript += event.results[i][0].transcript.toLowerCase();
+        }
+
+        const match = transcript.match(/(?:hey\s+)?alfred/i);
+        if (match) {
+          console.log('⚡ WAKE WORD DETECTED:', transcript);
+          playBeep(880, 'sine', 0.05);
+          setTimeout(() => playBeep(1320, 'sine', 0.08), 60);
+
+          const wakeDot = document.getElementById('wakeDot');
+          if (wakeDot) {
+            wakeDot.style.background = '#00ff88';
+            wakeDot.style.boxShadow = '0 0 12px #00ff88';
+          }
+          document.getElementById('audioState').innerText = 'WAKE: ALFRED';
+
+          const alfredEndPos = match.index + match[0].length;
+          let directive = transcript.slice(alfredEndPos).trim();
+          directive = directive.replace(/^[,.\s]+/, '');
+
+          if (directive.length > 2) {
+            try { wakeRecognizer.stop(); } catch(e) {}
+            document.getElementById('cmdInput').value = directive;
+            sendCommand();
+          } else {
+            document.getElementById('alfredOutput').innerText = '"At your service, Master Wayne. What is your directive?"';
+          }
+        }
+      };
+
+      wakeRecognizer.onerror = (event) => {
+        if (event.error !== 'no-speech') {
+          console.warn('Wake recognizer error:', event.error);
+        }
+      };
+
+      wakeRecognizer.onend = () => {
+        if (isWakeActive && !isAlfredSpeaking) {
+          setTimeout(() => {
+            if (isWakeActive && !isAlfredSpeaking) {
+              try { wakeRecognizer.start(); } catch(e) {}
+            }
+          }, 300);
+        }
+      };
+    }
+
+    function toggleWakeWord() {
+      initAudio();
+      if (!SpeechRecognition) {
+        alert('Web Speech Recognition is not supported on this browser or requires HTTPS.');
+        return;
+      }
+      if (!wakeRecognizer) initWakeWord();
+
+      isWakeActive = !isWakeActive;
+      const btn = document.getElementById('wakeBtn');
+      const dot = document.getElementById('wakeDot');
+
+      if (isWakeActive) {
+        btn.style.borderColor = 'var(--cyan)';
+        btn.style.background = 'rgba(0, 229, 255, 0.2)';
+        btn.style.boxShadow = '0 0 15px rgba(0, 229, 255, 0.4)';
+        dot.style.background = 'var(--cyan)';
+        dot.style.boxShadow = '0 0 8px var(--cyan)';
+        btn.innerHTML = '<span id="wakeDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--cyan); margin-right:5px; vertical-align:middle; box-shadow:0 0 8px var(--cyan);"></span> WAKE: LISTENING...';
+        try { wakeRecognizer.start(); } catch(e) {}
+        playBeep(1200, 'sine', 0.1);
+      } else {
+        btn.style.borderColor = 'rgba(0, 229, 255, 0.4)';
+        btn.style.background = 'rgba(0, 229, 255, 0.05)';
+        btn.style.boxShadow = 'none';
+        btn.innerHTML = '<span id="wakeDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:rgba(0,229,255,0.4); margin-right:5px; vertical-align:middle;"></span> WAKE: "ALFRED"';
+        try { wakeRecognizer.stop(); } catch(e) {}
+      }
+    }
+
+    function startLiveListening() {
+      if (!isLiveComm) return;
+      initAudio();
+      if (recognition) {
+        if (!isRecognizing) {
+          try {
+            recognition.start();
+          } catch (e) {}
+        }
+      } else {
+        if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+          micBtn.click();
+        }
+      }
+    }
+
+    if (liveCommBtn) {
+      liveCommBtn.onclick = () => {
+        initAudio();
+        isLiveComm = !isLiveComm;
+        if (isLiveComm) {
+          liveCommBtn.style.borderColor = 'var(--cyan)';
+          liveCommBtn.style.background = 'rgba(0, 229, 255, 0.2)';
+          liveCommDot.style.background = 'var(--cyan)';
+          liveCommDot.style.boxShadow = '0 0 10px var(--cyan)';
+          playBeep(880, 'sine', 0.08);
+          startLiveListening();
+        } else {
+          liveCommBtn.style.borderColor = 'rgba(0, 229, 255, 0.4)';
+          liveCommBtn.style.background = 'rgba(0, 229, 255, 0.05)';
+          liveCommDot.style.background = 'rgba(0, 229, 255, 0.4)';
+          liveCommDot.style.boxShadow = 'none';
+          playBeep(440, 'sine', 0.08);
+          stopSpeechRec();
+        }
+      };
+    }
+
+    if (SpeechRecognition) {
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        isRecognizing = true;
+        micBtn.classList.add('recording');
+        micBtn.innerText = 'LISTENING...';
+        document.getElementById('audioState').innerText = 'LISTENING';
+        playBeep(880, 'sine', 0.05);
+        document.getElementById('alfredOutput').innerText = 'Listening for directive...';
+      };
+
+      recognition.onresult = (event) => {
+        let interim = '';
+        let final = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            final += event.results[i][0].transcript;
+          } else {
+            interim += event.results[i][0].transcript;
+          }
+        }
+        const text = final || interim;
+        if (text) {
+          document.getElementById('cmdInput').value = text;
+          document.getElementById('alfredOutput').innerText = '[HEARD]: "' + text + '"';
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('Speech recognition status:', event.error);
+        stopSpeechRec();
+      };
+
+      recognition.onend = () => {
+        stopSpeechRec();
+        const text = document.getElementById('cmdInput').value.trim();
+        if (text && text !== 'Listening for directive...') {
+          document.getElementById('cmdInput').value = '';
+          sendCommand(text);
+        } else if (isLiveComm) {
+          setTimeout(() => {
+            if (isLiveComm && document.getElementById('audioState').innerText === 'STANDBY') {
+              startLiveListening();
+            }
+          }, 400);
+        }
+      };
+    }
+
+    function stopSpeechRec() {
+      if (isRecognizing && recognition) {
+        try { recognition.stop(); } catch (e) {}
+      }
+      isRecognizing = false;
+      micBtn.classList.remove('recording');
+      micBtn.innerText = 'MIC';
+    }
+
+    micBtn.onclick = async () => {
+      initAudio();
+
+      // 1. Try real-time streaming Web Speech API (0ms latency!)
+      if (recognition) {
+        if (!isRecognizing) {
+          try {
+            recognition.start();
+            return;
+          } catch (e) {
+            console.warn('Web Speech fallback to MediaRecorder', e);
+          }
+        } else {
+          stopSpeechRec();
+          return;
+        }
+      }
+
+      // 2. Fallback to MediaRecorder + Faster-Whisper
+      if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            micBtn.classList.remove('recording');
+            micBtn.innerText = 'MIC';
+            playBeep(440, 'sine', 0.1);
+
+            const activeVoice = document.getElementById('voiceSelect').value;
+            const activeModel = document.getElementById('modelSelect').value;
+
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'command.wav');
+            formData.append('voice', activeVoice);
+            formData.append('model', activeModel);
+
+            const outputEl = document.getElementById('alfredOutput');
+            outputEl.innerText = 'Transcribing audio via Faster-Whisper...';
+            document.getElementById('audioState').innerText = 'TRANSCRIBING';
+
+            try {
+              const res = await fetch('/api/listen', { method: 'POST', body: formData });
+              const data = await res.json();
+              document.getElementById('cmdInput').value = data.transcription || '';
+              outputEl.innerText = '"' + (data.reply || '') + '"';
+
+              if (data.audio_url) {
+                playAlfredAudio(data.audio_url);
+              }
+            } catch (err) {
+              outputEl.innerText = 'Failed to transcribe voice stream, sir.';
+              document.getElementById('audioState').innerText = 'ERROR';
+            }
+          };
+
+          mediaRecorder.start();
+          playBeep(880, 'sine', 0.1);
+          micBtn.classList.add('recording');
+          micBtn.innerText = 'LISTENING...';
+          document.getElementById('audioState').innerText = 'LISTENING';
+        } catch (err) {
+          alert('Microphone access denied: ' + err.message);
+        }
+      } else if (mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+      }
+    };
+  </script>
+</body>
+</html>

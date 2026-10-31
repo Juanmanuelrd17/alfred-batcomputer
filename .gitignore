@@ -1,0 +1,18 @@
+# Security & Private Keys
+*.key
+*.crt
+*.pem
+.env
+.env.local
+
+# Python & Node Caches
+__pycache__/
+*.pyc
+node_modules/
+
+# Audio Generation Cache
+audio_cache/*
+!audio_cache/.gitkeep
+
+# OS Artifacts
+.DS_Store

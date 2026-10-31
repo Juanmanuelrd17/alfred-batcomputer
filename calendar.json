@@ -1,0 +1,29 @@
+[
+  {
+    "id": "cal_5d79ca",
+    "title": "\ud83d\ude97 Drive: Peachtree City \u2192 Sawnee Mountain",
+    "time": "04:30 AM",
+    "date": "2026-08-15",
+    "location": "Sawnee Mountain Preserve, 4075 Spot Rd, Cumming, GA 30040",
+    "priority": "Personal",
+    "status": "CONFIRMED"
+  },
+  {
+    "id": "cal_0d2a98",
+    "title": "Personal Event",
+    "time": "06:00 AM",
+    "date": "2026-08-15",
+    "location": "Sawnee Mountain Preserve, 4075 Spot Rd, Cumming, GA 30040 (Indian Seats Trailhead)",
+    "priority": "Personal",
+    "status": "CONFIRMED"
+  },
+  {
+    "id": "cal_a9f8c2",
+    "title": "Personal Event",
+    "time": "08:15 AM",
+    "date": "2026-08-15",
+    "location": "Sawnee Mountain Biscuit Co, 104 13th St, Cumming, GA 30040",
+    "priority": "Personal",
+    "status": "CONFIRMED"
+  }
+]
