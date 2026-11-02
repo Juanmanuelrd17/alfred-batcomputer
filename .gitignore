@@ -16,3 +16,4 @@ audio_cache/*
 
 # OS Artifacts
 .DS_Store
+*.log

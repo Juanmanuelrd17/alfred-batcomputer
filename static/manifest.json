@@ -1,0 +1,22 @@
+{
+  "name": "'Puter // Batcomputer BCv1.2",
+  "short_name": "'Puter",
+  "description": "Fast, witty Cyberpunk Batcomputer AI Companion & Home Assistant Hub",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#01060d",
+  "theme_color": "#00e5ff",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/static/batcomputer_antigravity_hud.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/batcomputer_bat_hud_full.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

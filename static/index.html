@@ -3,21 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WAYNE ENTERPRISES // BATCOMPUTER HUD // ALFRED JARVIS CORE</title>
+  <title>BCv1.2 // WAYNE TECH BATCOMPUTER HUD // ALFRED CORE</title>
+  <link rel="manifest" href="/manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #000408;
-      --panel-bg: rgba(2, 18, 32, 0.75);
-      --panel-border: rgba(0, 229, 255, 0.28);
+      --bg: #01060d;
+      --panel-bg: rgba(2, 16, 30, 0.78);
+      --panel-border: rgba(0, 229, 255, 0.38);
       --cyan: #00e5ff;
-      --cyan-bright: #80f4ff;
+      --cyan-bright: #88f7ff;
       --blue: #0077ff;
-      --dark-blue: #003366;
+      --dark-blue: #002244;
+      --green: #00ff88;
+      --amber: #ffaa00;
+      --red: #ff2a55;
       --glow: 0 0 10px rgba(0, 229, 255, 0.7), 0 0 25px rgba(0, 119, 255, 0.4);
-      --glow-strong: 0 0 15px rgba(0, 229, 255, 0.9), 0 0 35px rgba(0, 119, 255, 0.7);
+      --glow-strong: 0 0 16px rgba(0, 229, 255, 0.95), 0 0 35px rgba(0, 119, 255, 0.75);
       --font-display: 'Orbitron', sans-serif;
       --font-mono: 'Share Tech Mono', monospace;
     }
@@ -37,73 +41,195 @@
       width: 100vw;
       overflow-x: hidden;
       position: relative;
-      background-image: 
-        radial-gradient(circle at 50% 50%, rgba(0, 119, 255, 0.08) 0%, transparent 65%),
+      background-image:
+        radial-gradient(circle at 50% 46%, rgba(0, 140, 255, 0.14) 0%, rgba(0, 40, 90, 0.05) 45%, transparent 72%),
         linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
         linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
-      background-size: 100% 100%, 40px 40px, 40px 40px;
+      background-size: 100% 100%, 36px 36px, 36px 36px;
     }
 
+    /* Subtle CRT & HUD scanline overlay */
     body::after {
       content: " ";
       display: block;
       position: fixed;
       top: 0; left: 0; bottom: 0; right: 0;
-      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.28) 50%);
       background-size: 100% 3px;
       z-index: 999;
       pointer-events: none;
-      opacity: 0.75;
+      opacity: 0.65;
     }
 
-    header {
-      display: flex;
-      justify-content: space-between;
+    /* Outer HUD Chamfered Frame Lines */
+    .hud-frame-border {
+      position: fixed;
+      inset: 6px;
+      border: 1px solid rgba(0, 229, 255, 0.22);
+      clip-path: polygon(
+        0 18px, 18px 0,
+        calc(100% - 18px) 0, 100% 18px,
+        100% calc(100% - 18px), calc(100% - 18px) 100%,
+        18px 100%, 0 calc(100% - 18px)
+      );
+      pointer-events: none;
+      z-index: 90;
+      box-shadow: inset 0 0 25px rgba(0, 229, 255, 0.06);
+    }
+
+    /* =====================================================
+       BCv1.2 TOP TRAPEZOID BAR & CORNER ARC GAUGES
+       ===================================================== */
+    .bcv-header {
+      display: grid;
+      grid-template-columns: 230px 1fr 230px;
       align-items: center;
-      padding: 10px 24px;
-      border-bottom: 1px solid var(--panel-border);
-      background: rgba(0, 8, 18, 0.85);
-      position: sticky;
-      top: 0;
+      padding: 6px 22px 4px 22px;
+      position: relative;
       z-index: 50;
-      backdrop-filter: blur(10px);
+      gap: 12px;
     }
 
-    .brand {
+    @media (max-width: 1100px) {
+      .bcv-header {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .corner-gauge-card {
       display: flex;
       align-items: center;
       gap: 12px;
+      background: rgba(1, 16, 32, 0.85);
+      border: 1px solid var(--panel-border);
+      padding: 6px 14px;
+      clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+      box-shadow: inset 0 0 15px rgba(0, 229, 255, 0.08);
+    }
+
+    .corner-gauge-card.right {
+      justify-content: flex-end;
+    }
+
+    .arc-gauge-svg {
+      width: 62px;
+      height: 62px;
+      filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+    }
+
+    .arc-bg {
+      fill: none;
+      stroke: rgba(0, 229, 255, 0.15);
+      stroke-width: 5;
+    }
+
+    .arc-fill {
+      fill: none;
+      stroke: var(--cyan);
+      stroke-width: 5;
+      stroke-linecap: round;
+      stroke-dasharray: 138;
+      stroke-dashoffset: 60;
+      transition: stroke-dashoffset 0.5s ease;
+    }
+
+    .gauge-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .gauge-title {
       font-family: var(--font-display);
+      font-size: 10px;
       font-weight: 800;
-      font-size: 15px;
       letter-spacing: 2px;
+      color: var(--cyan);
+    }
+
+    .gauge-val {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 900;
       color: #fff;
       text-shadow: var(--glow);
     }
 
-    .brand-tag {
-      font-size: 10px;
-      background: rgba(0, 229, 255, 0.15);
-      border: 1px solid var(--cyan);
-      padding: 2px 6px;
-      border-radius: 2px;
-      color: var(--cyan);
+    .gauge-sub {
+      font-size: 9px;
+      color: rgba(0, 229, 255, 0.65);
     }
 
-    .header-center {
-      font-size: 11px;
-      letter-spacing: 1px;
+    /* Center Trapezoid Console (BCv1.2 + Galactic Standard Time) */
+    .top-trapezoid {
+      background: linear-gradient(180deg, rgba(0, 28, 56, 0.92) 0%, rgba(1, 14, 28, 0.88) 100%);
+      border: 1px solid var(--cyan);
+      clip-path: polygon(0 0, 100% 0, calc(100% - 28px) 100%, 28px 100%);
+      padding: 8px 42px 10px 42px;
       display: flex;
-      gap: 16px;
+      justify-content: space-between;
       align-items: center;
+      gap: 18px;
+      box-shadow: var(--glow);
+    }
+
+    .bcv-badge-box {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .bcv-version {
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: 3px;
+      color: #fff;
+      text-shadow: var(--glow-strong);
+      border-right: 2px solid var(--cyan);
+      padding-right: 12px;
+    }
+
+    .gst-clock-box {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .gst-label {
+      font-size: 9px;
+      letter-spacing: 1.5px;
+      color: var(--cyan-bright);
+      text-transform: uppercase;
+    }
+
+    .gst-time {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 2px;
+      text-shadow: var(--glow);
+    }
+
+    .gst-date {
+      font-size: 10px;
+      color: rgba(0, 229, 255, 0.75);
+      letter-spacing: 1px;
+    }
+
+    .top-controls-cluster {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
     }
 
     .header-select {
-      background: rgba(0, 20, 40, 0.9);
+      background: rgba(0, 20, 40, 0.92);
       border: 1px solid var(--cyan);
       color: var(--cyan);
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 10px;
       padding: 4px 8px;
       border-radius: 2px;
       outline: none;
@@ -111,42 +237,56 @@
     }
 
     .header-select:hover {
-      box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.45);
     }
 
-    .clock {
-      font-family: var(--font-display);
-      font-size: 14px;
-      color: #fff;
-      text-shadow: var(--glow);
-    }
-
-    /* Main HUD Layout Grid */
+    /* =====================================================
+       MAIN 3-COLUMN BATCOMPUTER GRID
+       ===================================================== */
     .hud-grid {
       display: grid;
-      grid-template-columns: 320px 1fr 340px;
-      grid-template-rows: auto 1fr auto;
-      gap: 16px;
-      padding: 16px;
-      max-width: 1800px;
+      grid-template-columns: 360px 1fr 410px;
+      grid-template-rows: 1fr auto;
+      gap: 14px;
+      padding: 6px 20px 16px 20px;
+      max-width: 1920px;
       margin: 0 auto;
-      min-height: calc(100vh - 55px);
+      min-height: calc(100vh - 92px);
+      position: relative;
+      z-index: 10;
     }
 
-    @media (max-width: 1300px) {
+    @media (max-width: 1380px) {
       .hud-grid {
         grid-template-columns: 1fr;
       }
     }
 
+    /* Sci-Fi Chamfered Panel */
     .panel {
       background: var(--panel-bg);
       border: 1px solid var(--panel-border);
-      border-radius: 4px;
-      padding: 14px;
+      padding: 12px 14px;
       position: relative;
       backdrop-filter: blur(8px);
-      box-shadow: inset 0 0 15px rgba(0, 229, 255, 0.03);
+      clip-path: polygon(
+        0 10px, 10px 0,
+        calc(100% - 10px) 0, 100% 10px,
+        100% calc(100% - 10px), calc(100% - 10px) 100%,
+        10px 100%, 0 calc(100% - 10px)
+      );
+      box-shadow: inset 0 0 18px rgba(0, 229, 255, 0.05);
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 12px;
+      width: 45px;
+      height: 2px;
+      background: var(--cyan);
+      box-shadow: var(--glow);
     }
 
     .panel-header {
@@ -154,13 +294,14 @@
       justify-content: space-between;
       align-items: center;
       font-family: var(--font-display);
-      font-size: 11px;
+      font-size: 10px;
+      font-weight: 800;
       letter-spacing: 1.5px;
       color: #fff;
       border-bottom: 1px solid var(--panel-border);
-      padding-bottom: 8px;
-      margin-bottom: 12px;
-      text-shadow: 0 0 5px rgba(0, 229, 255, 0.5);
+      padding-bottom: 6px;
+      margin-bottom: 10px;
+      text-shadow: 0 0 6px rgba(0, 229, 255, 0.6);
     }
 
     .dot {
@@ -180,12 +321,12 @@
     .stat-row {
       display: flex;
       justify-content: space-between;
-      font-size: 12px;
-      margin-bottom: 8px;
+      font-size: 11px;
+      margin-bottom: 5px;
     }
 
     .stat-row .label {
-      color: rgba(0, 229, 255, 0.7);
+      color: rgba(0, 229, 255, 0.75);
     }
 
     .stat-row .value {
@@ -196,11 +337,11 @@
     .bar-container {
       width: 100%;
       height: 5px;
-      background: rgba(0, 30, 60, 0.8);
-      border: 1px solid rgba(0, 229, 255, 0.2);
+      background: rgba(0, 30, 60, 0.85);
+      border: 1px solid rgba(0, 229, 255, 0.25);
       border-radius: 2px;
       overflow: hidden;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
 
     .bar-fill {
@@ -210,116 +351,310 @@
       transition: width 0.4s ease;
     }
 
-    /* Center Stage */
-    .center-stage {
+    /* Left Column Layout with Circular Orbital Nodes (Like BCv1.2 Reference) */
+    .left-col-wrapper {
+      display: grid;
+      grid-template-columns: 54px 1fr;
+      gap: 10px;
+    }
+
+    .orbital-launcher-rail {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding-top: 4px;
+    }
+
+    .orbital-node {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0, 50, 95, 0.85) 0%, rgba(0, 15, 30, 0.95) 100%);
+      border: 1.5px solid var(--cyan);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.35), inset 0 0 8px rgba(0, 229, 255, 0.25);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
       position: relative;
-      min-height: 420px;
-      overflow: hidden;
+      color: var(--cyan);
+      font-family: var(--font-display);
+      font-size: 7px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-align: center;
     }
 
-    .reticle-container {
+    .orbital-node::after {
+      content: "";
+      position: absolute;
+      inset: 3px;
+      border-radius: 50%;
+      border: 1px dashed rgba(0, 229, 255, 0.45);
+      pointer-events: none;
+    }
+
+    .orbital-node:hover, .orbital-node.active {
+      transform: scale(1.08);
+      background: rgba(0, 229, 255, 0.25);
+      color: #fff;
+      box-shadow: var(--glow-strong);
+    }
+
+    .orbital-node span.icon {
+      font-size: 14px;
+      line-height: 1;
+      margin-bottom: 2px;
+    }
+
+    /* W TECH Badge at Bottom of Rail */
+    .wtech-badge {
+      margin-top: auto;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-family: var(--font-display);
+      font-weight: 900;
+      font-size: 12px;
+      letter-spacing: 3px;
+      color: var(--cyan);
+      border: 1px solid var(--cyan);
+      padding: 10px 4px;
+      background: rgba(0, 25, 50, 0.8);
+      text-shadow: var(--glow);
+      box-shadow: var(--glow);
+    }
+
+    /* Center Stage: Open BCv1.2 Viewport with Giant Glowing Batman Logo in the Middle */
+    .center-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
       position: relative;
-      width: 320px;
-      height: 320px;
+      min-height: 460px;
+      overflow: visible;
+      padding: 8px 10px;
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      backdrop-filter: none !important;
+      clip-path: none !important;
+    }
+
+    .center-stage::before {
+      display: none;
+    }
+
+    .center-bat-hero {
+      position: relative;
+      width: 100%;
+      max-width: 720px;
       display: flex;
       align-items: center;
       justify-content: center;
+      margin: auto 0;
+      padding: 10px 0;
+      animation: batHeroPulse 5s ease-in-out infinite alternate;
     }
 
-    .ring-outer, .ring-middle, .ring-inner {
-      position: absolute;
-      border-radius: 50%;
-      border: 1px dashed rgba(0, 229, 255, 0.35);
+    .center-bat-hero svg {
+      width: 100%;
+      height: auto;
+      overflow: visible;
+      filter:
+        drop-shadow(0 0 12px rgba(0, 229, 255, 0.95))
+        drop-shadow(0 0 32px rgba(0, 150, 255, 0.65))
+        drop-shadow(0 0 65px rgba(0, 110, 255, 0.4));
     }
 
-    .ring-outer {
-      width: 300px;
-      height: 300px;
-      animation: spin-cw 30s linear infinite;
+    @keyframes batHeroPulse {
+      0% {
+        transform: scale(0.99);
+        filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.4));
+      }
+      100% {
+        transform: scale(1.015);
+        filter: drop-shadow(0 0 22px rgba(0, 229, 255, 0.85));
+      }
     }
 
-    .ring-middle {
-      width: 230px;
-      height: 230px;
-      border-style: solid;
-      border-color: rgba(0, 119, 255, 0.25);
-      animation: spin-ccw 20s linear infinite;
+    /* Center Bottom Tactical Schematics Row (Batmobile + Global Radar Map) */
+    .center-schematics-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      width: 100%;
+      margin-top: 8px;
     }
 
-    .ring-inner {
-      width: 160px;
-      height: 160px;
-      border-color: var(--cyan);
-      box-shadow: 0 0 15px rgba(0, 229, 255, 0.3);
-      animation: pulse 4s ease-in-out infinite;
-    }
-
-    @keyframes spin-cw {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-
-    @keyframes spin-ccw {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(-360deg); }
-    }
-
-    .bat-emblem {
-      width: 140px;
-      height: 70px;
-      z-index: 2;
-      filter: drop-shadow(0 0 12px rgba(0, 229, 255, 0.8));
+    .schematic-box {
+      background: rgba(0, 16, 32, 0.82);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      padding: 8px 10px;
+      clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
     }
 
     /* Multi-Drawer Right Column */
     .drawer-tabs {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
       gap: 4px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .drawer-tab {
-      flex: 1;
-      background: rgba(0, 20, 40, 0.6);
+      background: rgba(0, 22, 44, 0.75);
       border: 1px solid var(--panel-border);
-      color: rgba(0, 229, 255, 0.7);
+      color: rgba(0, 229, 255, 0.78);
       font-family: var(--font-display);
-      font-size: 9px;
-      font-weight: 700;
-      padding: 6px 2px;
+      font-size: 8.5px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      padding: 6px 3px;
       text-align: center;
       cursor: pointer;
       border-radius: 2px;
-      transition: all 0.2s;
+      transition: all 0.18s;
+    }
+
+    .drawer-tab:hover {
+      border-color: var(--cyan);
+      color: #fff;
     }
 
     .drawer-tab.active {
-      background: rgba(0, 229, 255, 0.2);
+      background: rgba(0, 229, 255, 0.25);
       border-color: var(--cyan);
       color: #fff;
-      box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.45);
     }
 
     .drawer-content {
       display: none;
-      max-height: 380px;
+      max-height: 455px;
       overflow-y: auto;
       font-size: 11px;
+      padding-right: 2px;
     }
 
     .drawer-content.active {
       display: block;
     }
 
+    /* Tools Hub Cards */
+    .tool-card {
+      background: rgba(0, 18, 36, 0.82);
+      border: 1px solid rgba(0, 229, 255, 0.28);
+      padding: 10px 12px;
+      margin-bottom: 9px;
+      border-radius: 3px;
+      transition: all 0.2s;
+    }
+
+    .tool-card.connected {
+      border-left: 3px solid var(--green);
+    }
+
+    .tool-card.disconnected {
+      border-left: 3px solid #666;
+      opacity: 0.75;
+    }
+
+    .tool-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .tool-name {
+      font-family: var(--font-display);
+      font-size: 10px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Toggle Switch */
+    .hud-switch {
+      position: relative;
+      display: inline-block;
+      width: 34px;
+      height: 18px;
+    }
+    .hud-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .hud-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: rgba(0, 30, 60, 0.9);
+      border: 1px solid rgba(0, 229, 255, 0.4);
+      transition: .2s;
+      border-radius: 18px;
+    }
+    .hud-slider:before {
+      position: absolute;
+      content: "";
+      height: 12px;
+      width: 12px;
+      left: 2px;
+      bottom: 2px;
+      background-color: #888;
+      transition: .2s;
+      border-radius: 50%;
+    }
+    input:checked + .hud-slider {
+      background-color: rgba(0, 255, 136, 0.2);
+      border-color: var(--green);
+    }
+    input:checked + .hud-slider:before {
+      transform: translateX(15px);
+      background-color: var(--green);
+      box-shadow: 0 0 6px var(--green);
+    }
+
+    /* Mini Month Calendar & Biometric Profile (BCv1.2 Right Panel Style) */
+    .bcv-mini-cal {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+      text-align: center;
+      font-size: 9px;
+      background: rgba(0, 14, 28, 0.8);
+      border: 1px solid rgba(0, 229, 255, 0.22);
+      padding: 6px;
+      margin-bottom: 10px;
+    }
+    .bcv-mini-cal div {
+      padding: 3px 0;
+    }
+    .bcv-mini-cal .cal-hdr {
+      color: var(--cyan);
+      font-weight: 800;
+    }
+    .bcv-mini-cal .cal-today {
+      background: var(--cyan);
+      color: #000;
+      font-weight: 900;
+      border-radius: 2px;
+      box-shadow: 0 0 8px var(--cyan);
+    }
+
     .note-item, .calendar-item, .memory-item {
-      background: rgba(0, 15, 30, 0.6);
-      border: 1px solid rgba(0, 229, 255, 0.2);
+      background: rgba(0, 15, 30, 0.65);
+      border: 1px solid rgba(0, 229, 255, 0.22);
       padding: 8px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       border-radius: 2px;
       cursor: pointer;
       transition: border-color 0.2s;
@@ -332,12 +667,12 @@
     /* Alfred Voice Core Bottom Panel */
     .alfred-core {
       grid-column: 1 / -1;
-      background: rgba(1, 15, 28, 0.9);
+      background: rgba(1, 14, 28, 0.92);
       border: 1px solid var(--panel-border);
-      padding: 16px;
-      border-radius: 4px;
+      padding: 12px 16px;
+      clip-path: polygon(0 10px, 10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
       display: grid;
-      grid-template-columns: 260px 1fr 280px;
+      grid-template-columns: 250px 1fr 270px;
       gap: 16px;
       align-items: center;
     }
@@ -350,8 +685,8 @@
 
     .visualizer-box {
       width: 100%;
-      height: 64px;
-      background: rgba(0, 10, 20, 0.8);
+      height: 60px;
+      background: rgba(0, 10, 20, 0.85);
       border: 1px solid var(--panel-border);
       position: relative;
       border-radius: 2px;
@@ -366,46 +701,49 @@
 
     .input-bar {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       width: 100%;
-      margin-top: 8px;
+      margin-top: 6px;
+      flex-wrap: wrap;
     }
 
     .hud-input {
       flex: 1;
-      background: rgba(0, 20, 40, 0.9);
+      min-width: 180px;
+      background: rgba(0, 20, 40, 0.92);
       border: 1px solid var(--panel-border);
       color: #fff;
       font-family: var(--font-mono);
       font-size: 13px;
-      padding: 10px 14px;
+      padding: 8px 12px;
       border-radius: 2px;
       outline: none;
     }
 
     .hud-input:focus {
       border-color: var(--cyan);
-      box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.45);
     }
 
     .hud-btn {
-      background: rgba(0, 40, 80, 0.8);
+      background: rgba(0, 40, 80, 0.82);
       border: 1px solid var(--cyan);
       color: var(--cyan);
       font-family: var(--font-display);
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
-      letter-spacing: 1.5px;
-      padding: 0 16px;
+      letter-spacing: 1.2px;
+      padding: 0 12px;
+      height: 34px;
       cursor: pointer;
       border-radius: 2px;
-      display: flex;
+      display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
-      transition: all 0.2s;
+      transition: all 0.18s;
       text-transform: uppercase;
-      box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+      box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
     }
 
     .hud-btn:hover {
@@ -415,48 +753,48 @@
     }
 
     .hud-btn.recording {
-      background: #ff2244;
-      border-color: #ff2244;
+      background: var(--red);
+      border-color: var(--red);
       color: #fff;
-      animation: pulse 1s infinite;
+      box-shadow: 0 0 15px var(--red);
+      animation: blink 0.8s infinite;
     }
 
     .alfred-speech-bubble {
       font-size: 12px;
       color: #fff;
       line-height: 1.4;
-      min-height: 36px;
-      background: rgba(0, 25, 45, 0.6);
-      border-left: 2px solid var(--cyan);
-      padding: 8px 12px;
+      min-height: 34px;
+      background: rgba(0, 25, 48, 0.65);
+      border-left: 3px solid var(--cyan);
+      padding: 7px 12px;
       border-radius: 0 2px 2px 0;
     }
 
     .status-badge {
       font-size: 9px;
-      background: rgba(0, 229, 255, 0.1);
+      background: rgba(0, 229, 255, 0.12);
       border: 1px solid var(--cyan);
-      padding: 2px 6px;
+      padding: 1px 6px;
       border-radius: 2px;
       color: var(--cyan);
     }
-  
+
     /* Center Background Batman Insignia Watermark */
     .bat-watermark {
       position: fixed;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 72vw;
-      max-width: 1050px;
+      width: 68vw;
+      max-width: 1000px;
       height: auto;
       pointer-events: none;
-      z-index: 1; /* Sits behind HUD panels (z-index 10) */
-      opacity: 0.38;
+      z-index: 1;
+      opacity: 0.34;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.5s ease;
       animation: batWatermarkGlow 6s ease-in-out infinite alternate;
     }
     .bat-watermark svg {
@@ -466,38 +804,25 @@
     }
     @keyframes batWatermarkGlow {
       0% {
-        opacity: 0.30;
+        opacity: 0.26;
         filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.35)) drop-shadow(0 0 35px rgba(0, 240, 255, 0.18));
       }
-      50% {
-        opacity: 0.45;
+      100% {
+        opacity: 0.42;
         filter: drop-shadow(0 0 24px rgba(0, 240, 255, 0.65)) drop-shadow(0 0 55px rgba(0, 240, 255, 0.32));
       }
-      100% {
-        opacity: 0.34;
-        filter: drop-shadow(0 0 15px rgba(0, 240, 255, 0.4)) drop-shadow(0 0 40px rgba(0, 240, 255, 0.22));
-      }
     }
-
-    /* Container z-index positioning so panels sit over watermark */
-    header { z-index: 20; position: relative; }
-    .grid { z-index: 10; position: relative; }
-    .drawer-content { z-index: 15; }
 
     /* Smart Home Devices Grid */
     .device-card {
-      background: rgba(0, 20, 35, 0.7);
+      background: rgba(0, 20, 35, 0.75);
       border: 1px solid var(--panel-border);
-      border-radius: 4px;
-      padding: 10px 12px;
-      margin-bottom: 10px;
+      border-radius: 3px;
+      padding: 8px 10px;
+      margin-bottom: 8px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      transition: border-color 0.2s;
-    }
-    .device-card:hover {
-      border-color: var(--cyan);
+      gap: 5px;
     }
     .device-row {
       display: flex;
@@ -515,37 +840,35 @@
     .device-status-badge {
       font-size: 9px;
       padding: 2px 6px;
-      border-radius: 3px;
+      border-radius: 2px;
       text-transform: uppercase;
       font-weight: 700;
-      letter-spacing: 0.5px;
     }
     .badge-on {
       background: rgba(0, 255, 136, 0.15);
-      border: 1px solid #00ff88;
-      color: #00ff88;
-      box-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+      border: 1px solid var(--green);
+      color: var(--green);
     }
     .badge-off {
       background: rgba(100, 100, 100, 0.2);
       border: 1px solid #555;
-      color: #888;
+      color: #999;
     }
     .sync-bar {
       display: flex;
       gap: 6px;
-      background: rgba(0, 25, 45, 0.6);
+      background: rgba(0, 25, 45, 0.65);
       border: 1px solid var(--panel-border);
-      padding: 8px;
-      border-radius: 4px;
-      margin-bottom: 12px;
+      padding: 6px;
+      border-radius: 3px;
+      margin-bottom: 8px;
     }
     .sync-input {
       flex: 1;
-      background: rgba(0, 10, 20, 0.8);
+      background: rgba(0, 10, 20, 0.85);
       border: 1px solid var(--panel-border);
       color: #fff;
-      padding: 4px 8px;
+      padding: 5px 8px;
       font-family: inherit;
       font-size: 10px;
       border-radius: 2px;
@@ -554,285 +877,763 @@
       outline: none;
       border-color: var(--cyan);
     }
+    .preset-chip {
+      background: rgba(0, 35, 70, 0.75);
+      border: 1px solid rgba(0, 229, 255, 0.35);
+      color: var(--cyan-bright);
+      font-size: 9px;
+      padding: 3px 7px;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .preset-chip:hover {
+      background: var(--cyan);
+      color: #000;
+    }
 
+    /* BCv1.2 Desktop File Manager & Numbered List (01..10 Style) */
+    .bcv-file-row {
+      display: grid;
+      grid-template-columns: 26px 20px 1fr auto auto;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      margin-bottom: 4px;
+      background: rgba(0, 18, 36, 0.78);
+      border: 1px solid rgba(0, 229, 255, 0.22);
+      border-left: 2.5px solid var(--cyan);
+      border-radius: 2px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-size: 10.5px;
+    }
+    .bcv-file-row:hover {
+      background: rgba(0, 229, 255, 0.18);
+      border-color: var(--cyan);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+    }
+    .bcv-file-idx {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 9.5px;
+      color: var(--cyan);
+      opacity: 0.85;
+    }
+    .bcv-file-name {
+      color: #fff;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .bcv-file-meta {
+      font-size: 9px;
+      color: rgba(0, 229, 255, 0.68);
+      margin-right: 4px;
+    }
+    .bcv-mini-act {
+      background: rgba(0, 40, 80, 0.85);
+      border: 1px solid rgba(0, 229, 255, 0.45);
+      color: var(--cyan-bright);
+      font-family: var(--font-display);
+      font-size: 8px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+    .bcv-mini-act:hover {
+      background: var(--cyan);
+      color: #000;
+    }
+    .bcv-top-search-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(0, 14, 28, 0.9);
+      border: 1px solid var(--cyan);
+      clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 100%, 0 100%);
+      padding: 3px 14px;
+      min-width: 290px;
+      box-shadow: inset 0 0 10px rgba(0, 229, 255, 0.2);
+    }
+    .bcv-top-search-bar input {
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      outline: none;
+      width: 100%;
+    }
   </style>
 </head>
 <body>
 
-  <!-- Glowing Center Background Batman Insignia Watermark (Wayne Tech HUD) -->
-  <div class="bat-watermark" id="batWatermark">
-    <svg viewBox="0 0 1000 550" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <filter id="batGlowFilter" x="-30%" y="-30%" width="160%" height="160%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur1" />
-          <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur2" />
-          <feGaussianBlur in="SourceGraphic" stdDeviation="40" result="blur3" />
-          <feMerge>
-            <feMergeNode in="blur3" />
-            <feMergeNode in="blur2" />
-            <feMergeNode in="blur1" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-        <linearGradient id="batGlowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.32" />
-          <stop offset="45%" stop-color="#0088ff" stop-opacity="0.18" />
-          <stop offset="100%" stop-color="#001530" stop-opacity="0.06" />
-        </linearGradient>
-      </defs>
+  <!-- Outer Sci-Fi Frame Border -->
+  <div class="hud-frame-border"></div>
 
-      <!-- Tactical Reticle & Radar Rings behind Insignia -->
-      <circle cx="500" cy="310" r="230" fill="none" stroke="rgba(0, 240, 255, 0.12)" stroke-width="1.2" stroke-dasharray="4,8" />
-      <circle cx="500" cy="310" r="330" fill="none" stroke="rgba(0, 240, 255, 0.08)" stroke-width="1.2" stroke-dasharray="10,14" />
-      <circle cx="500" cy="310" r="410" fill="none" stroke="rgba(0, 240, 255, 0.05)" stroke-width="0.8" />
-      <line x1="80" y1="310" x2="920" y2="310" stroke="rgba(0, 240, 255, 0.10)" stroke-width="1" stroke-dasharray="3,6" />
-      <line x1="500" y1="60" x2="500" y2="520" stroke="rgba(0, 240, 255, 0.10)" stroke-width="1" stroke-dasharray="3,6" />
-
-      <!-- Arkham Batman Crest Vector -->
-      <path d="M 500,195 L 510,135 L 528,198 C 585,195 670,190 760,130 C 760,190 735,260 670,305 C 765,300 840,335 910,410 C 830,415 745,395 680,360 C 700,430 655,485 580,505 C 555,445 525,410 500,410 C 475,410 445,445 420,505 C 345,485 300,430 320,360 C 255,395 170,415 90,410 C 160,335 235,300 330,305 C 265,260 240,190 240,130 C 330,190 415,195 472,198 L 490,135 Z"
-            fill="url(#batGlowGrad)"
-            stroke="#00f0ff"
-            stroke-width="3"
-            stroke-linejoin="round"
-            filter="url(#batGlowFilter)" />
-
-      <!-- Inner Crest Highlight Line -->
-      <path d="M 500,210 L 507,160 L 522,212 C 570,210 645,205 725,155 C 725,200 705,255 650,295 C 730,290 795,320 855,385 C 790,390 720,375 665,345 C 680,400 645,445 580,465 C 555,418 530,390 500,390 C 470,390 445,418 420,465 C 355,445 320,400 335,345 C 280,375 210,390 145,385 C 205,320 270,290 350,295 C 295,255 275,200 275,155 C 355,205 430,210 478,212 L 493,160 Z"
-            fill="none"
-            stroke="rgba(0, 240, 255, 0.45)"
-            stroke-width="1.2"
-            stroke-dasharray="6,4" />
-    </svg>
-  </div>
-
-
-  <!-- Top Header Navigation -->
-  <header>
-    <div class="brand">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="var(--cyan)">
-        <polygon points="12,2 22,20 2,20" fill="none" stroke="var(--cyan)" stroke-width="2"/>
-        <circle cx="12" cy="14" r="3" fill="var(--cyan)"/>
+  <!-- =====================================================
+       TOP BCv1.2 TRAPEZOID HEADER + CIRCULAR ARC GAUGES
+       ===================================================== -->
+  <header class="bcv-header">
+    <!-- Top-Left Circular Arc Gauge: RAM + White Mini Bat Emblem -->
+    <div class="corner-gauge-card">
+      <svg viewBox="0 0 1000 560" style="width:42px; height:24px; filter:drop-shadow(0 0 6px rgba(255,255,255,0.8)); flex-shrink:0;">
+        <path d="M 40,140 L 395,140 C 402,225 450,232 476,225 L 485,148 L 492,182 L 508,182 L 515,148 L 524,225 C 550,232 598,225 605,140 L 960,140 C 855,195 790,275 815,365 C 705,338 565,385 500,515 C 435,385 295,338 185,365 C 210,275 145,195 40,140 Z" fill="#ffffff" />
       </svg>
-      <span>WAYNE ENTERPRISES</span>
-      <span class="brand-tag">JARVIS CORE</span>
-    </div>
-
-    <div class="header-center">
-      <div>
-        <span>BRAIN:</span>
-        <select id="modelSelect" class="header-select" onchange="changeModel(this.value)">
-          <option value="qwen2.5:7b">Qwen 2.5 7B</option>
-        </select>
-      </div>
-      <div>
-        <span>VOICE:</span>
-        <select id="voiceSelect" class="header-select" onchange="changeVoice(this.value)">
-          <option value="daniel">Daniel (Butler)</option>
-        </select>
-      </div>
-      <div class="header-metric">
-        <span>UPTIME:</span>
-        <span class="val" id="sysUptime">00:00:00</span>
+      <svg class="arc-gauge-svg" viewBox="0 0 60 60">
+        <circle cx="30" cy="30" r="22" class="arc-bg" />
+        <circle id="ramArcFill" cx="30" cy="30" r="22" class="arc-fill" transform="rotate(-90 30 30)" />
+        <text x="30" y="34" text-anchor="middle" fill="#fff" font-family="Orbitron" font-size="10" font-weight="800" id="ramArcPct">55%</text>
+      </svg>
+      <div class="gauge-meta">
+        <span class="gauge-title" id="ramGaugeTitle">RAM // M1</span>
+        <span class="gauge-val" id="ramGaugeVal">4.4 G</span>
+        <span class="gauge-sub" id="memUsage">4.4G / 8.0G</span>
       </div>
     </div>
 
-    <div class="clock" id="liveClock">00:00:00</div>
+    <!-- Center BCv1.2 Trapezoid Console -->
+    <div class="top-trapezoid">
+      <div class="bcv-badge-box">
+        <div class="bcv-version">BCv1.2</div>
+        <div class="gst-clock-box">
+          <span class="gst-label">Galactic Standard Time</span>
+          <span class="gst-time" id="liveClock">00:00:00</span>
+          <span class="gst-date" id="liveDate">SATURDAY, OCTOBER 31, 2026</span>
+        </div>
+      </div>
+
+      <!-- BCv1.2 Top-Center Trapezoid Search Bar (Matches BCv1.2 Desktop Screenshot) -->
+      <div class="bcv-top-search-bar">
+        <span style="color:var(--cyan); font-size:12px;">🔍</span>
+        <input type="text" id="topUniversalSearch" placeholder="Search Local Files, Apps, Web, or Ask 'Puter..." onkeydown="if(event.key==='Enter') executeTopUniversalSearch()" />
+        <button class="bcv-mini-act" onclick="executeTopUniversalSearch()">GO</button>
+      </div>
+
+      <div class="top-controls-cluster">
+        <div>
+          <span style="font-size:9px; color:rgba(0,229,255,0.75);">BRAIN:</span>
+          <select id="modelSelect" class="header-select" onchange="changeModel(this.value)">
+            <option value="no-think/kr/claude-haiku-4.5">Claude Haiku 4.5 (0.7s)</option>
+          </select>
+        </div>
+        <div>
+          <span style="font-size:9px; color:rgba(0,229,255,0.75);">VOICE:</span>
+          <select id="voiceSelect" class="header-select" onchange="changeVoice(this.value)">
+            <option value="daniel">Daniel (Butler)</option>
+          </select>
+        </div>
+        <button id="desktopOverrideBtn" class="hud-btn" style="height:26px; font-size:9px; padding:0 10px; border-color:var(--green); color:var(--green);" onclick="toggleDesktopOverrideMode()" title="Override your full desktop with BCv1.2 Shell (F11)">
+          🖥️ DESKTOP SHELL
+        </button>
+      </div>
+    </div>
+
+    <!-- Top-Right Circular Arc Gauge: CPU -->
+    <div class="corner-gauge-card right">
+      <div class="gauge-meta" style="text-align:right;">
+        <span class="gauge-title" id="cpuGaugeTitle">CPU // CORE</span>
+        <span class="gauge-val" id="cpuPct">5.0%</span>
+        <span class="gauge-sub" id="diskUsage">140G FREE</span>
+      </div>
+      <svg class="arc-gauge-svg" viewBox="0 0 60 60">
+        <circle cx="30" cy="30" r="22" class="arc-bg" />
+        <circle id="cpuArcFill" cx="30" cy="30" r="22" class="arc-fill" transform="rotate(-90 30 30)" />
+        <text x="30" y="34" text-anchor="middle" fill="#fff" font-family="Orbitron" font-size="10" font-weight="800" id="cpuArcText">5%</text>
+      </svg>
+    </div>
   </header>
 
-  <!-- Main HUD Grid -->
+  <!-- =====================================================
+       MAIN 3-COLUMN BATCOMPUTER HUD GRID
+       ===================================================== -->
   <div class="hud-grid">
 
-    <!-- LEFT COLUMN: Telemetry & Smart Home Controls -->
-    <div style="display:flex; flex-direction:column; gap:16px;">
-      
-      <!-- Hardware Telemetry -->
-      <div class="panel">
-        <div class="panel-header">
-          <span>// HARDWARE // M1 SILICON</span>
-          <div class="dot"></div>
+    <!-- LEFT COLUMN: Orbital Node Rail + Fleet Telemetry & Smart Home -->
+    <div class="left-col-wrapper">
+      <!-- Left Circular Orbital Nodes (Matches BCv1.2 Desktop Launcher Rings) -->
+      <div class="orbital-launcher-rail">
+        <div class="orbital-node active" id="orb-files" onclick="openDesktopFolderOrb('/home/jmrd', 'orb-files')" title="Browse Local Computer Files & Folders">
+          <span class="icon">💻</span>
+          <span>COMPUTER</span>
         </div>
-        <div class="stat-row">
-          <span class="label">CPU LOAD</span>
-          <span class="value" id="cpuPct">5.0%</span>
+        <div class="orbital-node" id="orb-games" onclick="launchLocalDesktopApp('steam', '/home/jmrd/Games')" title="Launch Steam / Games Folder">
+          <span class="icon">🎮</span>
+          <span>GAMES</span>
         </div>
-        <div class="bar-container"><div class="bar-fill" id="cpuBar" style="width: 5%;"></div></div>
+        <div class="orbital-node" id="orb-docs" onclick="openDesktopFolderOrb('/home/jmrd/Documents', 'orb-docs')" title="Open Local Documents Folder">
+          <span class="icon">📄</span>
+          <span>DOCS</span>
+        </div>
+        <div class="orbital-node" id="orb-dloads" onclick="openDesktopFolderOrb('/home/jmrd/Downloads', 'orb-dloads')" title="Open Local Downloads Folder">
+          <span class="icon">⬇️</span>
+          <span>DLOADS</span>
+        </div>
+        <div class="orbital-node" id="orb-code" onclick="launchLocalDesktopApp('code', '/home/jmrd/.gemini/antigravity/scratch/alfred-batcomputer')" title="Launch VS Code on Your Desktop">
+          <span class="icon">🧑‍💻</span>
+          <span>CODE</span>
+        </div>
+        <div class="orbital-node" id="orb-web" onclick="launchLocalDesktopApp('browser')" title="Launch Zen Browser">
+          <span class="icon">🌐</span>
+          <span>BROWSER</span>
+        </div>
+        <div class="orbital-node" id="orb-tools" onclick="switchDrawer('tools')" title="Tools & Integrations Hub">
+          <span class="icon">🔌</span>
+          <span>TOOLS</span>
+        </div>
+        <div class="orbital-node" id="orb-home" onclick="switchDrawer('home')" title="Home Assistant Smart Vault">
+          <span class="icon">🦇</span>
+          <span>CAVE</span>
+        </div>
 
-        <div class="stat-row">
-          <span class="label">UNIFIED RAM</span>
-          <span class="value" id="memUsage">4.2G / 8.0G</span>
-        </div>
-        <div class="bar-container"><div class="bar-fill" id="memBar" style="width: 55%;"></div></div>
-
-        <div class="stat-row">
-          <span class="label">STORAGE (/)</span>
-          <span class="value" id="diskUsage">140G FREE</span>
-        </div>
-        <div class="bar-container"><div class="bar-fill" id="diskBar" style="width: 15%;"></div></div>
+        <div class="wtech-badge">W TECH</div>
       </div>
 
-      <!-- Batcave & Home Assistant Smart Hub -->
-      <div class="panel">
-        <div class="panel-header">
-          <span>// BATCAVE & SMART HOME HUB</span>
-          <div class="dot"></div>
+      <!-- Left Panels Stack -->
+      <div style="display:flex; flex-direction:column; gap:12px;">
+
+        <!-- Local Host Hardware Temps (CPU, GPU, NVMe, Fans), Drives & Beszel Fleet -->
+        <div class="panel">
+          <div class="panel-header">
+            <span>// LOCAL RIG TEMPS (GPU / CPU) & FLEET</span>
+            <div class="dot"></div>
+          </div>
+
+          <!-- Local Host CPU, GPU, NVMe & Fan RPM Telemetry Box -->
+          <div id="localHardwareTelemetryBox" style="background:rgba(0,18,36,0.88); border:1px solid rgba(0,229,255,0.32); padding:7px 9px; margin-bottom:8px; border-radius:2px;">
+            <div class="stat-row" style="margin-bottom:2px; font-size:10px;">
+              <span class="label" id="localCpuNameLbl">🔥 CPU: RYZEN 7 5800X</span>
+              <span class="value" id="localCpuMetricsVal" style="color:var(--green);">48.6°C // 5% (3.8GHz)</span>
+            </div>
+            <div class="bar-container" style="margin-bottom:6px;"><div class="bar-fill" id="localCpuLoadBar" style="width: 12%;"></div></div>
+
+            <div class="stat-row" style="margin-bottom:2px; font-size:10px;">
+              <span class="label" id="localGpuNameLbl">🎮 GPU: GTX 1080 (8G)</span>
+              <span class="value" id="localGpuMetricsVal" style="color:var(--cyan);">51.0°C // 0% (12W)</span>
+            </div>
+            <div class="bar-container" style="margin-bottom:5px;"><div class="bar-fill" id="localGpuLoadBar" style="width: 12%;"></div></div>
+
+            <div style="display:flex; justify-content:space-between; font-size:9px; color:rgba(0,229,255,0.82); border-top:1px solid rgba(0,229,255,0.16); padding-top:4px;">
+              <span id="localGpuVramLbl">VRAM: 0.9G / 8.0G</span>
+              <span id="localNvmeTempLbl">NVME: 52.9°C</span>
+              <span id="localFansRpmLbl">FANS: 1083 RPM</span>
+            </div>
+          </div>
+
+          <!-- BCv1.2 C:/ and D:/ Local PC Disk Bars -->
+          <div style="background:rgba(0,16,32,0.8); border:1px solid rgba(0,229,255,0.25); padding:6px 8px; margin-bottom:8px; border-radius:2px;">
+            <div class="stat-row" style="margin-bottom:2px; font-size:10px;">
+              <span class="label" id="localDriveCLabel">C:/ (NVME ROOT)</span>
+              <span class="value" id="localDriveCVal" style="color:var(--cyan);">185G / 465G</span>
+            </div>
+            <div class="bar-container" style="margin-bottom:5px;"><div class="bar-fill" id="localDriveCBar" style="width: 40%;"></div></div>
+            <div class="stat-row" style="margin-bottom:2px; font-size:10px;">
+              <span class="label" id="localDriveDLabel">D:/ (HOME VAULT)</span>
+              <span class="value" id="localDriveDVal" style="color:var(--green);">ONLINE</span>
+            </div>
+            <div class="bar-container" style="margin-bottom:0;"><div class="bar-fill" id="localDriveDBar" style="width: 32%;"></div></div>
+          </div>
+
+          <div class="stat-row">
+            <span class="label">MAC MINI M1 (HOST)</span>
+            <span class="value" id="m1HostSummary" style="color:var(--green);">ONLINE</span>
+          </div>
+          <div class="bar-container"><div class="bar-fill" id="cpuBar" style="width: 8%;"></div></div>
+          <div class="bar-container" style="display:none;"><div class="bar-fill" id="memBar" style="width: 55%;"></div></div>
+          <div class="bar-container" style="display:none;"><div class="bar-fill" id="diskBar" style="width: 15%;"></div></div>
+          <span id="sysUptime" style="display:none;">00:00:00</span>
+
+          <!-- Live Beszel Nodes (ZimaOS & OptiPlex) -->
+          <div id="leftBeszelList" style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
+            <div style="font-size:10px; color:rgba(0,229,255,0.6);">Syncing Beszel fleet nodes...</div>
+          </div>
+
+          <div style="margin-top:8px; display:flex; gap:6px;">
+            <button class="hud-btn" style="flex:1; height:24px; font-size:8.5px;" onclick="switchDrawer('files')">📂 MY FILES</button>
+            <button class="hud-btn" style="flex:1; height:24px; font-size:8.5px;" onclick="switchDrawer('tools')">🔌 TOOLS HUB</button>
+          </div>
         </div>
 
-        <!-- Sony BRAVIA 85" Display -->
-        <div class="stat-row" style="margin-top:4px;">
-          <span class="label">BRAVIA 85" TV</span>
-          <span class="value" id="tvState" style="color:var(--cyan); font-weight:700;">LIVE CONNECTED</span>
-        </div>
-        <div style="display:flex; gap:6px; margin-top:6px;">
-          <button class="hud-btn" style="flex:1.2; font-size:9px; height:26px;" onclick="controlDevice('media_player', 'toggle', 'media_player.tv_sala_2')">TOGGLE POWER</button>
-          <button class="hud-btn" style="flex:0.8; font-size:9px; height:26px;" onclick="controlDevice('media_player', 'volume_mute', 'media_player.tv_sala_2', {is_volume_muted: true})">MUTE</button>
+        <!-- Batcave & Home Assistant Smart Hub -->
+        <div class="panel">
+          <div class="panel-header">
+            <span>// BATCAVE & HOME ASSISTANT HUB</span>
+            <div class="dot"></div>
+          </div>
+
+          <div class="stat-row">
+            <span class="label">BRAVIA 85" DISPLAY</span>
+            <span class="value" id="tvState" style="color:var(--cyan); font-weight:700;">LIVE</span>
+          </div>
+          <div style="display:flex; gap:6px; margin-bottom:8px;">
+            <button class="hud-btn" style="flex:1.2; font-size:9px; height:24px;" onclick="controlDevice('media_player', 'toggle', 'media_player.tv_sala_2')">TV POWER</button>
+            <button class="hud-btn" style="flex:0.8; font-size:9px; height:24px;" onclick="controlDevice('media_player', 'volume_mute', 'media_player.tv_sala_2', {is_volume_muted: true})">MUTE</button>
+          </div>
+
+          <div class="stat-row">
+            <span class="label">CLIMATE / HVAC</span>
+            <span class="value" id="thermoTemp" style="color:var(--green);">72.5°F (COOLING)</span>
+          </div>
+          <div class="stat-row">
+            <span class="label">HUMIDITY</span>
+            <span class="value" id="thermoHumidity">61% RH</span>
+          </div>
+
+          <div class="stat-row" style="margin-top:4px;">
+            <span class="label">LIGHTING MATRIX</span>
+            <span class="value" id="lightsSummary" style="color:var(--cyan);">SYNCED</span>
+          </div>
+          <div style="display:flex; gap:4px; margin-top:4px;">
+            <button class="hud-btn" style="flex:1; font-size:8.5px; height:24px; padding:0 4px;" onclick="controlDevice('light', 'toggle', 'light.dimmer_cuarto_jm')">JM ROOM</button>
+            <button class="hud-btn" style="flex:1; font-size:8.5px; height:24px; padding:0 4px;" onclick="controlDevice('light', 'toggle', 'light.luz_sala')">SALA</button>
+            <button class="hud-btn" style="flex:1; font-size:8.5px; height:24px; padding:0 4px;" onclick="controlDevice('light', 'toggle', 'light.home_theater')">THEATER</button>
+          </div>
         </div>
 
-        <!-- Server & Home Thermostat -->
-        <div class="stat-row" style="margin-top:10px;">
-          <span class="label">CLIMATE / THERMO</span>
-          <span class="value" id="thermoTemp" style="color:#00ff88; font-weight:700;">72.5°F (COOLING)</span>
-        </div>
-        <div class="stat-row">
-          <span class="label">HUMIDITY</span>
-          <span class="value" id="thermoHumidity">61.3% RH</span>
-        </div>
-
-        <!-- Quarters Lighting -->
-        <div class="stat-row" style="margin-top:8px;">
-          <span class="label">LIGHTING MATRIX</span>
-          <span class="value" id="lightsSummary" style="color:var(--cyan);">SYNCED</span>
-        </div>
-        <div style="display:flex; gap:6px; margin-top:6px;">
-          <button class="hud-btn" style="flex:1; font-size:9px; height:24px;" onclick="controlDevice('light', 'toggle', 'light.dimmer_cuarto_jm')">JM ROOM</button>
-          <button class="hud-btn" style="flex:1; font-size:9px; height:24px;" onclick="controlDevice('light', 'toggle', 'light.luz_sala')">LIVING ROOM</button>
-          <button class="hud-btn" style="flex:1; font-size:9px; height:24px;" onclick="controlDevice('light', 'toggle', 'light.home_theater')">THEATER</button>
-        </div>
-
-        <!-- Quick Drawer Switch -->
-        <div style="margin-top:10px;">
-          <button class="hud-btn" style="width:100%; font-size:10px; height:26px; border-color:var(--cyan);" onclick="switchDrawer('home')">OPEN SMART HOME VAULT ⤢</button>
-        </div>
       </div>
-
     </div>
 
-    <!-- CENTER STAGE: Targeting Reticle & Insignia -->
+    <!-- CENTER STAGE: Iconic BCv1.2 Glowing Batman Logo in the Middle + Lower Schematics -->
     <div class="panel center-stage">
-      <div class="reticle-container">
-        <div class="ring-outer"></div>
-        <div class="ring-middle"></div>
-        <div class="ring-inner"></div>
+      <div style="width:100%; display:flex; justify-content:space-between; align-items:center; font-size:10px; color:rgba(0,229,255,0.85); padding:4px 8px; background:rgba(0,18,36,0.55); border:1px solid rgba(0,229,255,0.22);">
+        <span>// NEURAL CORE: OMNIROUTE + MLX METAL GPU</span>
+        <span id="whisperBadge" style="color:var(--green); font-weight:700;">⚡ MLX-WHISPER: ~160ms READY</span>
+      </div>
 
-        <svg class="bat-emblem" viewBox="0 0 1000 480" xmlns="http://www.w3.org/2000/svg">
-          <path d="M 500,20 C 530,120 620,130 680,80 C 730,180 880,180 1000,160 C 950,290 820,380 670,390 C 720,440 680,470 630,470 C 570,380 540,360 500,380 C 460,360 430,380 370,470 C 320,470 280,440 330,390 C 180,380 50,290 0,160 C 120,180 270,180 320,80 C 380,130 470,120 500,20 Z" fill="none" stroke="var(--cyan)" stroke-width="16" stroke-linejoin="round"/>
-          <path d="M 500,45 C 525,130 610,140 660,100 C 710,190 850,190 960,175 C 910,285 790,365 650,375 C 700,420 660,450 620,450 C 560,370 535,350 500,365 C 465,350 440,370 380,450 C 340,450 300,420 350,375 C 210,365 90,285 40,175 C 150,190 290,190 340,100 C 390,140 475,130 500,45 Z" fill="rgba(0, 229, 255, 0.15)"/>
+      <!-- Giant Central Glowing BCv1.2 Batman Emblem -->
+      <div class="center-bat-hero">
+        <svg viewBox="0 0 1000 540" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="bcvBatFill" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#00d8ff" stop-opacity="0.34" />
+              <stop offset="55%" stop-color="#0077ff" stop-opacity="0.22" />
+              <stop offset="100%" stop-color="#003377" stop-opacity="0.14" />
+            </linearGradient>
+            <pattern id="bcvBatGrid" width="36" height="36" patternUnits="userSpaceOnUse">
+              <path d="M 36 0 L 0 0 0 36" fill="none" stroke="rgba(0, 229, 255, 0.22)" stroke-width="1" />
+            </pattern>
+            <clipPath id="bcvBatClip">
+              <path d="M 35,140 L 395,140 C 402,225 450,232 476,225 L 485,148 L 492,182 L 508,182 L 515,148 L 524,225 C 550,232 598,225 605,140 L 965,140 C 855,195 790,275 815,365 C 705,338 565,385 500,515 C 435,385 295,338 185,365 C 210,275 145,195 35,140 Z" />
+            </clipPath>
+          </defs>
+
+          <!-- Translucent Hologram Fill -->
+          <path d="M 35,140 L 395,140 C 402,225 450,232 476,225 L 485,148 L 492,182 L 508,182 L 515,148 L 524,225 C 550,232 598,225 605,140 L 965,140 C 855,195 790,275 815,365 C 705,338 565,385 500,515 C 435,385 295,338 185,365 C 210,275 145,195 35,140 Z"
+                fill="url(#bcvBatFill)" />
+
+          <!-- Internal Tech Grid Pattern Inside Batman Silhouette (Matches BCv1.2 Reference) -->
+          <rect x="0" y="0" width="1000" height="540" fill="url(#bcvBatGrid)" clip-path="url(#bcvBatClip)" />
+
+          <!-- Outer Bright Neon Cyan Outline -->
+          <path d="M 35,140 L 395,140 C 402,225 450,232 476,225 L 485,148 L 492,182 L 508,182 L 515,148 L 524,225 C 550,232 598,225 605,140 L 965,140 C 855,195 790,275 815,365 C 705,338 565,385 500,515 C 435,385 295,338 185,365 C 210,275 145,195 35,140 Z"
+                fill="none"
+                stroke="#00e5ff"
+                stroke-width="4.5"
+                stroke-linejoin="round" />
+
+          <!-- Subtle Arkham Progress Readout Under Right Wing (Matches BCv1.2 Reference) -->
+          <text x="750" y="425" fill="rgba(0, 229, 255, 0.7)" font-family="Orbitron" font-size="14" font-weight="800" letter-spacing="1.5">PROGRESS</text>
+          <line x1="750" y1="432" x2="955" y2="432" stroke="rgba(0, 229, 255, 0.35)" stroke-width="1" />
+          <text x="750" y="450" fill="rgba(200, 240, 255, 0.75)" font-family="Share Tech Mono" font-size="11.5">ARKHAM CITY 72%</text>
+          <text x="750" y="466" fill="rgba(200, 240, 255, 0.75)" font-family="Share Tech Mono" font-size="11.5">RIDDLER SECRETS 440/440</text>
         </svg>
       </div>
 
-      <div style="display:flex; gap:20px; margin-top:16px; width:100%; justify-content:center;">
-        <div style="background:rgba(0,20,40,0.8); border:1px solid var(--panel-border); padding:8px 16px; border-radius:2px; text-align:center; flex:1; max-width:200px;">
-          <div style="font-size:9px; color:rgba(0,229,255,0.7);">ARKHAM PROGRESS</div>
-          <div style="font-size:16px; font-weight:800; color:#fff;">72%</div>
+      <!-- BCv1.2 Lower Schematics: Batmobile Blueprint + Global Satellite Radar -->
+      <div class="center-schematics-row">
+        <!-- Batmobile Wireframe Schematic -->
+        <div class="schematic-box">
+          <div style="display:flex; justify-content:space-between; font-size:9px; color:#fff; font-family:var(--font-display); margin-bottom:4px;">
+            <span>BATMOBILE MK-IV // DIAGNOSTICS</span>
+            <span style="color:var(--green);">ARMOR 100%</span>
+          </div>
+          <svg viewBox="0 0 300 80" style="width:100%; height:54px;">
+            <g stroke="var(--cyan)" fill="rgba(0, 229, 255, 0.08)" stroke-width="1.3">
+              <!-- Futuristic Batmobile Silhouette Blueprint -->
+              <path d="M 20,55 L 45,35 L 95,30 L 135,20 L 205,22 L 255,36 L 282,48 L 275,60 L 25,60 Z" />
+              <line x1="95" y1="30" x2="115" y2="55" stroke-dasharray="2,2" />
+              <line x1="205" y1="22" x2="190" y2="55" stroke-dasharray="2,2" />
+              <circle cx="65" cy="58" r="14" fill="#010a14" stroke-width="2" />
+              <circle cx="65" cy="58" r="6" />
+              <circle cx="235" cy="58" r="15" fill="#010a14" stroke-width="2" />
+              <circle cx="235" cy="58" r="7" />
+              <path d="M 135,24 L 195,25 L 210,38 L 125,38 Z" fill="rgba(0, 229, 255, 0.22)" />
+            </g>
+            <text x="12" y="14" fill="rgba(0,229,255,0.7)" font-size="8" font-family="Share Tech Mono">TURBINE: IDLE // CELL: 98.4%</text>
+          </svg>
         </div>
-        <div style="background:rgba(0,20,40,0.8); border:1px solid var(--panel-border); padding:8px 16px; border-radius:2px; text-align:center; flex:1; max-width:200px;">
-          <div style="font-size:9px; color:rgba(0,229,255,0.7);">RIDDLER TROPHIES</div>
-          <div style="font-size:16px; font-weight:800; color:#44ff88; text-shadow:0 0 10px #44ff88;">440 / 440</div>
+
+        <!-- Global Satellite & Tailscale Mesh Radar -->
+        <div class="schematic-box">
+          <div style="display:flex; justify-content:space-between; font-size:9px; color:#fff; font-family:var(--font-display); margin-bottom:4px;">
+            <span>SATELLITE MESH // GOTHAM & LAN</span>
+            <span id="activeToolsCountBadge" style="color:var(--cyan);">5 TOOLS LINKED</span>
+          </div>
+          <svg viewBox="0 0 300 80" style="width:100%; height:54px;">
+            <rect x="2" y="2" width="296" height="76" fill="none" stroke="rgba(0,229,255,0.18)" />
+            <line x1="0" y1="40" x2="300" y2="40" stroke="rgba(0,229,255,0.15)" stroke-dasharray="3,3" />
+            <line x1="150" y1="0" x2="150" y2="80" stroke="rgba(0,229,255,0.15)" stroke-dasharray="3,3" />
+            <!-- Radar Nodes -->
+            <circle cx="75" cy="36" r="4" fill="#00ff88" />
+            <circle cx="75" cy="36" r="11" fill="none" stroke="#00ff88" stroke-width="0.8" />
+            <text x="90" y="39" fill="#fff" font-size="8.5" font-family="Share Tech Mono">MAC-MINI (100.77.249.27)</text>
+
+            <circle cx="215" cy="24" r="3.5" fill="var(--cyan)" />
+            <text x="165" y="15" fill="var(--cyan)" font-size="8" font-family="Share Tech Mono">ZIMAOS:8090</text>
+
+            <circle cx="235" cy="56" r="3.5" fill="var(--cyan)" />
+            <text x="165" y="70" fill="var(--cyan)" font-size="8" font-family="Share Tech Mono">HA // 192.168.1.131</text>
+
+            <path d="M 75,36 L 215,24 M 75,36 L 235,56" stroke="rgba(0,229,255,0.45)" stroke-width="1" stroke-dasharray="3,2" />
+          </svg>
         </div>
       </div>
     </div>
 
-    <!-- RIGHT COLUMN: Multi-Drawer (Second Brain, Calendar, Reverse Engineer) -->
+    <!-- RIGHT COLUMN: Multi-Drawer (TOOLS, TEARDOWN, SMART HOME, AGENDA, BRAIN, MEMORY, CLONE) -->
     <div class="panel" style="display:flex; flex-direction:column;">
       <div class="panel-header">
-        <span>// TACTICAL INTELLIGENCE DRAWER</span>
+        <span>// TACTICAL INTELLIGENCE & TOOLS HUB</span>
+        <div class="dot"></div>
       </div>
 
       <div class="drawer-tabs">
-        <div class="drawer-tab active" onclick="switchDrawer('brain')">SECOND BRAIN</div>
-        <div class="drawer-tab" onclick="switchDrawer('calendar')">AGENDA</div>
-        <div class="drawer-tab" onclick="switchDrawer('home')">SMART HOME</div>
-        <div class="drawer-tab" onclick="switchDrawer('clone')">VOICE CLONE</div>
-        <div class="drawer-tab" onclick="switchDrawer('memory')">MEMORY</div>
-        <div class="drawer-tab" onclick="switchDrawer('reverse')">TEARDOWN</div>
+        <div class="drawer-tab active" data-tab="files" onclick="switchDrawer('files')">📂 FILES</div>
+        <div class="drawer-tab" data-tab="tools" onclick="switchDrawer('tools')">🔌 TOOLS</div>
+        <div class="drawer-tab" data-tab="reverse" onclick="switchDrawer('reverse')">🧬 TEARDOWN</div>
+        <div class="drawer-tab" data-tab="home" onclick="switchDrawer('home')">🏠 SMART HOME</div>
+        <div class="drawer-tab" data-tab="calendar" onclick="switchDrawer('calendar')">📅 AGENDA</div>
+        <div class="drawer-tab" data-tab="brain" onclick="switchDrawer('brain')">🧠 BRAIN</div>
+        <div class="drawer-tab" data-tab="memory" onclick="switchDrawer('memory')">💾 MEMORY</div>
+        <div class="drawer-tab" data-tab="clone" onclick="switchDrawer('clone')">🎙️ VOICE</div>
+        <div class="drawer-tab" data-tab="bio" onclick="switchDrawer('bio')">👁️ VISION</div>
       </div>
 
-      <!-- Second Brain Tab -->
-      <div id="drawer-brain" class="drawer-content active">
-        <div style="font-size:10px; margin-bottom:8px; color:rgba(0,229,255,0.7);">LOCAL KNOWLEDGE VAULT</div>
-        <div id="brainNotesList">Loading notes...</div>
-      </div>
-
-      <!-- Calendar Agenda Tab (With Google & Personal Calendar Sync) -->
-      <div id="drawer-calendar" class="drawer-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <div style="font-size:10px; color:rgba(0,229,255,0.7);">// PERSONAL CALENDAR & TACTICAL SCHEDULE</div>
-          <span id="calSyncStatus" style="font-size:9px; color:#00ff88;">SYNCED</span>
+      <!-- =====================================================
+           0. BCv1.2 LOCAL DESKTOP FILES, FOLDERS & APPS SHELL
+           ===================================================== -->
+      <div id="drawer-files" class="drawer-content active">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <span style="font-size:10px; color:var(--cyan-bright);" id="localFilesHostLabel">// LOCAL DESKTOP SHELL (JM-GAMING-PC)</span>
+          <span class="device-status-badge badge-on" id="localBridgeBadge">DESKTOP LINKED</span>
         </div>
 
-        <!-- Calendar Sync URL Bar -->
+        <!-- Quick Native Desktop App Dock -->
+        <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:4px; margin-bottom:7px;">
+          <button class="hud-btn" style="height:24px; font-size:8px; padding:0 3px;" onclick="launchLocalDesktopApp('nautilus', currentLocalDir)">📂 FILES</button>
+          <button class="hud-btn" style="height:24px; font-size:8px; padding:0 3px;" onclick="launchLocalDesktopApp('code', currentLocalDir)">🧑‍💻 CODE</button>
+          <button class="hud-btn" style="height:24px; font-size:8px; padding:0 3px;" onclick="launchLocalDesktopApp('steam')">🎮 STEAM</button>
+          <button class="hud-btn" style="height:24px; font-size:8px; padding:0 3px;" onclick="launchLocalDesktopApp('browser')">🌐 WEB</button>
+          <button class="hud-btn" style="height:24px; font-size:8px; padding:0 3px;" onclick="launchLocalDesktopApp('terminal', currentLocalDir)">💻 TERM</button>
+        </div>
+
+        <!-- Quick Folder Bookmarks -->
+        <div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:7px;">
+          <span class="preset-chip" onclick="loadLocalFiles('/home/jmrd')">🏠 Home</span>
+          <span class="preset-chip" onclick="loadLocalFiles('/home/jmrd/Documents')">📄 Documents</span>
+          <span class="preset-chip" onclick="loadLocalFiles('/home/jmrd/Downloads')">⬇️ Downloads</span>
+          <span class="preset-chip" onclick="loadLocalFiles('/home/jmrd/Nextcloud')">☁️ Nextcloud</span>
+          <span class="preset-chip" onclick="loadLocalFiles('/home/jmrd/Games')">🎮 Games</span>
+          <span class="preset-chip" onclick="loadLocalFiles('/home/jmrd/.gemini/antigravity/scratch/alfred-batcomputer')">🦇 Batcomputer</span>
+        </div>
+
+        <!-- Current Path + Filter Input -->
+        <div style="display:flex; gap:5px; align-items:center; margin-bottom:6px; background:rgba(0,16,32,0.88); border:1px solid var(--panel-border); padding:4px 6px; border-radius:2px;">
+          <button class="bcv-mini-act" onclick="navigateLocalUp()" title="Go to parent directory">⬆️ UP</button>
+          <span id="localCurrentPathText" style="font-size:9.5px; color:var(--cyan); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">/home/jmrd</span>
+          <input type="text" id="localFileFilterInput" placeholder="Filter..." style="width:88px; background:rgba(0,10,20,0.9); border:1px solid rgba(0,229,255,0.35); color:#fff; font-size:9.5px; padding:2px 5px; font-family:inherit;" oninput="loadLocalFiles(currentLocalDir, this.value)" />
+        </div>
+
+        <!-- Inline File Preview Box (Hidden until a text/code file is clicked) -->
+        <div id="localFilePreviewModal" style="display:none; background:rgba(0,12,24,0.95); border:1px solid var(--cyan); padding:8px; margin-bottom:8px; border-radius:2px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; border-bottom:1px solid rgba(0,229,255,0.25); padding-bottom:4px;">
+            <strong id="previewFileName" style="color:var(--green); font-size:10px;">file.txt</strong>
+            <div style="display:flex; gap:4px;">
+              <button class="bcv-mini-act" id="previewOpenNativeBtn">🚀 OPEN APP</button>
+              <button class="bcv-mini-act" id="previewOpenCodeBtn">📝 VS CODE</button>
+              <button class="bcv-mini-act" style="border-color:#ff4444; color:#ff6666;" onclick="document.getElementById('localFilePreviewModal').style.display='none'">✕</button>
+            </div>
+          </div>
+          <pre id="previewFileContent" style="font-size:9.5px; line-height:1.35; color:#d8f8ff; max-height:150px; overflow:auto; white-space:pre-wrap; font-family:var(--font-mono);"></pre>
+        </div>
+
+        <!-- Numbered 01..N File & Folder List (Matches BCv1.2 Reference Screenshot) -->
+        <div id="localFilesListContainer" style="max-height:285px; overflow-y:auto;">
+          <div style="font-size:10px; color:rgba(0,229,255,0.7);">Connecting to Local Desktop Bridge (127.0.0.1:7778)...</div>
+        </div>
+      </div>
+
+      <!-- =====================================================
+           1. NEW TOOLS HUB TAB (Choose & Configure Connected Tools)
+           ===================================================== -->
+      <div id="drawer-tools" class="drawer-content">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-size:10px; color:var(--cyan-bright);">// SELECT & CONFIGURE ALFRED NEURAL TOOLS</span>
+          <button class="hud-btn" style="height:22px; font-size:8.5px; padding:0 8px;" onclick="loadToolsHub()">SYNC ALL</button>
+        </div>
+
+        <!-- Tool 1: MLX-Whisper Fast STT Engine -->
+        <div class="tool-card connected">
+          <div class="tool-header">
+            <span class="tool-name">⚡ APPLE SILICON MLX-WHISPER (STT)</span>
+            <span class="device-status-badge badge-on" id="whisperStatusBadge">161ms GPU</span>
+          </div>
+          <div style="font-size:9.5px; color:#bbb; margin-bottom:6px;">
+            Runs natively on M1 Metal GPU with custom Batcomputer & Home Assistant vocabulary prompting ("Hey Computer" / "Hey Puter").
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <span style="font-size:9px; color:var(--cyan);">MODEL:</span>
+            <select id="whisperModelSelect" class="header-select" style="flex:1;" onchange="saveWhisperConfig()">
+              <option value="mlx-community/whisper-base.en-mlx">whisper-base.en-mlx (~160ms Ultra-Fast)</option>
+              <option value="mlx-community/whisper-small.en-mlx">whisper-small.en-mlx (~380ms High-Accuracy)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Tool 1b: Alfred // Hermes Autonomous Agent (Heavy Workloads) -->
+        <div class="tool-card connected" id="card-hermes">
+          <div class="tool-header">
+            <span class="tool-name">🤖 ALFRED // HERMES AGENT (HEAVY WORKLOADS)</span>
+            <label class="hud-switch">
+              <input type="checkbox" id="toggle-hermes" checked onchange="toggleTool('hermes', this.checked)">
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+          <div style="font-size:9.5px; color:#bbb; margin-bottom:6px;">
+            'Puter autonomously delegates heavy terminal, SSH, file, code & system workloads to <strong>Alfred</strong> (<code style="color:var(--cyan);">/Users/jmrd/.local/bin/hermes</code>).
+          </div>
+          <div style="display:flex; gap:5px; margin-bottom:5px;">
+            <input type="text" id="hermesTaskInput" class="sync-input" placeholder="Dispatch heavy task to Alfred (e.g. Check Mac Mini uptime & ports)..." />
+            <button class="hud-btn" style="height:24px; font-size:8.5px; padding:0 8px;" onclick="dispatchHermesFromTools()">DISPATCH</button>
+          </div>
+          <div id="hermesTaskOutput" style="font-size:9.5px; color:var(--green);">✓ Hermes Agent online & ready for autonomous delegation.</div>
+        </div>
+
+        <!-- Tool 2: Beszel Server Fleet Monitoring -->
+        <div class="tool-card connected" id="card-beszel">
+          <div class="tool-header">
+            <span class="tool-name">🖥️ BESZEL FLEET TELEMETRY (ZIMAOS + OPTIPLEX)</span>
+            <label class="hud-switch">
+              <input type="checkbox" id="toggle-beszel" checked onchange="toggleTool('beszel', this.checked)">
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+          <div style="font-size:9.5px; color:#aaa; margin-bottom:6px;">
+            Live metrics via <code style="color:var(--cyan);">zimaos:8090</code> SQLite bridge (<code style="color:#fff;">zimaos</code> & <code style="color:#fff;">optiplex 192.168.1.131</code>).
+          </div>
+          <div id="toolsBeszelPreview" style="font-size:9.5px; color:var(--green);">Loading Beszel nodes...</div>
+        </div>
+
+        <!-- Tool 3: Wayne Mail (IMAP) -->
+        <div class="tool-card connected" id="card-mail">
+          <div class="tool-header">
+            <span class="tool-name">✉️ WAYNE ENTERPRISES MAIL (IMAP)</span>
+            <label class="hud-switch">
+              <input type="checkbox" id="toggle-mail" checked onchange="toggleTool('mail', this.checked)">
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px; margin-bottom:6px;">
+            <input type="text" id="mailAddressInput" class="sync-input" placeholder="Email (juanmanuelrd1017@gmail.com)" />
+            <input type="password" id="mailPassInput" class="sync-input" placeholder="Gmail App Password (16 chars)" />
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+            <span id="mailStatusText" style="font-size:9px; color:#aaa;">Configure App Password to read live inbox.</span>
+            <button class="hud-btn" style="height:22px; font-size:8.5px; padding:0 8px;" onclick="saveMailConfig()">SAVE & CHECK MAIL</button>
+          </div>
+          <div id="mailMessagesPreview" style="margin-top:6px; font-size:9.5px;"></div>
+        </div>
+
+        <!-- Tool 4: Home Assistant Smart Hub -->
+        <div class="tool-card connected" id="card-home_assistant">
+          <div class="tool-header">
+            <span class="tool-name">🏠 HOME ASSISTANT (192.168.1.131:8123)</span>
+            <label class="hud-switch">
+              <input type="checkbox" id="toggle-home_assistant" checked onchange="toggleTool('home_assistant', this.checked)">
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+          <div style="font-size:9.5px; color:var(--green);">
+            ✓ Connected: Sony BRAVIA 85", Sonos, Thermostat, 7 Lights, Anycubic Kobra X 3D Printer, Garages & Lock.
+          </div>
+        </div>
+
+        <!-- Tool 5: Personal Calendar (.ics / Google Calendar) -->
+        <div class="tool-card connected" id="card-calendar">
+          <div class="tool-header">
+            <span class="tool-name">📅 TACTICAL CALENDAR (.ICS FEED)</span>
+            <label class="hud-switch">
+              <input type="checkbox" id="toggle-calendar" checked onchange="toggleTool('calendar', this.checked)">
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+          <div style="display:flex; gap:5px;">
+            <input type="text" id="toolsCalUrlInput" class="sync-input" placeholder="Paste Google/iCloud .ics URL..." />
+            <button class="hud-btn" style="height:24px; font-size:8.5px; padding:0 8px;" onclick="syncCalendarFromTools()">SYNC</button>
+          </div>
+        </div>
+
+        <!-- Tool 6: GitHub Repository Teardown Link -->
+        <div class="tool-card connected" id="card-github">
+          <div class="tool-header">
+            <span class="tool-name">🧬 GITHUB REPOSITORY TEARDOWN</span>
+            <label class="hud-switch">
+              <input type="checkbox" id="toggle-github" checked onchange="toggleTool('github', this.checked)">
+              <span class="hud-slider"></span>
+            </label>
+          </div>
+          <div style="display:flex; gap:5px; margin-bottom:4px;">
+            <input type="text" id="toolsGithubRepoInput" class="sync-input" value="Juanmanuelrd17/alfred-batcomputer" placeholder="Default repo (owner/repo)" />
+            <button class="hud-btn" style="height:24px; font-size:8.5px; padding:0 8px;" onclick="openRepoTeardownFromTools()">TEARDOWN REPO ⤢</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- =====================================================
+           2. UPGRADED TEARDOWN TAB (Real GitHub Repo + Web URL)
+           ===================================================== -->
+      <div id="drawer-reverse" class="drawer-content">
+        <div style="font-size:10px; margin-bottom:6px; color:var(--cyan-bright);">
+          // REAL GITHUB REPOSITORY & WEB ARCHITECTURE TEARDOWN
+        </div>
+
+        <!-- Quick Repo Presets -->
+        <div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:7px;">
+          <span class="preset-chip" onclick="selectTeardownPreset('Juanmanuelrd17/alfred-batcomputer')">🐙 Juanmanuelrd17/alfred-batcomputer</span>
+          <span class="preset-chip" onclick="selectTeardownPreset('https://github.com/Juanmanuelrd17/alfred-batcomputer')">🔗 Full GitHub URL</span>
+          <span class="preset-chip" onclick="selectTeardownPreset('henrygd/beszel')">🖥️ henrygd/beszel</span>
+        </div>
+
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+          <input type="text" id="reUrlInput" class="hud-input" value="Juanmanuelrd17/alfred-batcomputer" placeholder="owner/repo, https://github.com/..., or https://..." style="font-size:11px; padding:6px 10px;" />
+          <button class="hud-btn" style="height:32px; font-size:9.5px; padding:0 12px;" onclick="runReverseEngineer()">EXECUTE TEARDOWN</button>
+        </div>
+
+        <!-- Repo Metadata Badges (Stars, Languages, Tree Count) -->
+        <div id="reMetaBox" style="display:none; background:rgba(0,22,44,0.85); border:1px solid var(--cyan); padding:7px 9px; margin-bottom:8px; border-radius:2px; font-size:10px;"></div>
+
+        <div id="reReportOutput" style="font-size:10.5px; line-height:1.45; white-space:pre-wrap; background:rgba(0,10,20,0.92); padding:10px; border:1px solid var(--panel-border); max-height:310px; overflow-y:auto; color:#e0faff;">Select a GitHub repository (e.g. Juanmanuelrd17/alfred-batcomputer) or URL above and click EXECUTE TEARDOWN to inspect live git trees, commits, and entrypoint code...</div>
+      </div>
+
+      <!-- =====================================================
+           3. SMART HOME DEVICE VAULT TAB
+           ===================================================== -->
+      <div id="drawer-home" class="drawer-content">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="font-size:10px; color:rgba(0,229,255,0.75);">// HOME ASSISTANT FLEET APPLIANCES & SENSORS</div>
+          <button class="hud-btn" style="font-size:9px; height:22px; padding:0 8px;" onclick="loadSmartHomeDrawer()">REFRESH</button>
+        </div>
+        <div id="smartHomeDevicesList" style="max-height:390px; overflow-y:auto;">
+          <div style="color:#888; font-size:11px;">Querying Home Assistant devices...</div>
+        </div>
+      </div>
+
+      <!-- =====================================================
+           4. CALENDAR AGENDA TAB + BCv1.2 MINI CALENDAR GRID
+           ===================================================== -->
+      <div id="drawer-calendar" class="drawer-content">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <div style="font-size:10px; color:rgba(0,229,255,0.75);">// TACTICAL CALENDAR & MONTH MATRIX</div>
+          <span id="calSyncStatus" style="font-size:9px; color:var(--green);">SYNCED</span>
+        </div>
+
+        <!-- BCv1.2 Mini Month Calendar Matrix -->
+        <div class="bcv-mini-cal" id="miniMonthGrid"></div>
+
         <div class="sync-bar">
-          <input type="text" id="calUrlInput" class="sync-input" placeholder="Paste Google Calendar / iCloud .ics or webcal:// feed URL" />
-          <button class="hud-btn" style="font-size:10px; padding:0 10px; height:24px;" onclick="syncCalendarUrl()">SYNC FEED</button>
+          <input type="text" id="calUrlInput" class="sync-input" placeholder="Paste Google Calendar / iCloud .ics URL" />
+          <button class="hud-btn" style="font-size:9px; padding:0 10px; height:24px;" onclick="syncCalendarUrl()">SYNC FEED</button>
         </div>
 
         <div id="calendarList" style="max-height:220px; overflow-y:auto;">Loading personal calendar...</div>
       </div>
 
-      <!-- Smart Home Device Hub Tab -->
-      <div id="drawer-home" class="drawer-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <div style="font-size:10px; color:rgba(0,229,255,0.7);">// HOME ASSISTANT FLEET APPLIANCES & SENSORS</div>
-          <button class="hud-btn" style="font-size:9px; height:22px; padding:0 8px;" onclick="loadSmartHomeDrawer()">REFRESH</button>
+      <!-- =====================================================
+           5. SECOND BRAIN TAB
+           ===================================================== -->
+      <div id="drawer-brain" class="drawer-content">
+        <div style="font-size:10px; margin-bottom:8px; color:rgba(0,229,255,0.75);">// LOCAL KNOWLEDGE VAULT (MARKDOWN)</div>
+        <div id="brainNotesList">Loading notes...</div>
+      </div>
+
+      <!-- =====================================================
+           6. MEMORY VAULT TAB
+           ===================================================== -->
+      <div id="drawer-memory" class="drawer-content">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="font-size:10px; color:rgba(0,229,255,0.75);">// PERSISTENT LONG-TERM MEMORY</div>
+          <button class="hud-btn" style="height:20px; font-size:9px; padding:0 6px;" onclick="purgeWorkingBuffer()">PURGE BUFFER</button>
         </div>
-        <div id="smartHomeDevicesList" style="max-height:240px; overflow-y:auto;">
-          <div style="color:#888; font-size:11px;">Querying Home Assistant devices...</div>
+        <div id="memoryList" style="max-height:280px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">Loading memory...</div>
+        <div style="display:flex; gap:4px;">
+          <input type="text" id="newMemFact" class="hud-input" placeholder="New memory fact (e.g. Master prefers...)" style="flex:1; font-size:10px; padding:6px;" />
+          <button class="hud-btn" style="height:28px; font-size:9px;" onclick="addMemoryFromUI()">RECORD</button>
         </div>
       </div>
 
-      <!-- Voice Cloning Studio Tab -->
+      <!-- =====================================================
+           7. VOICE CLONING STUDIO TAB
+           ===================================================== -->
       <div id="drawer-clone" class="drawer-content">
-        <div style="font-size:10px; color:rgba(0,229,255,0.7); margin-bottom:8px;">// ZERO-SHOT VOICE CLONING (MICHAEL CAINE / CUSTOM)</div>
-        <div style="background:rgba(0,20,35,0.7); border:1px solid var(--panel-border); border-radius:4px; padding:12px; margin-bottom:12px;">
+        <div style="font-size:10px; color:rgba(0,229,255,0.75); margin-bottom:8px;">// ZERO-SHOT VOICE CLONING (MICHAEL CAINE / CUSTOM)</div>
+        <div style="background:rgba(0,20,35,0.75); border:1px solid var(--panel-border); border-radius:4px; padding:12px;">
           <div style="font-size:11px; color:#fff; font-weight:700; margin-bottom:6px;">Target Voice Identity</div>
           <div style="display:flex; gap:8px; margin-bottom:10px;">
-            <input type="text" id="cloneName" class="sync-input" placeholder="Display Name (e.g. Michael Caine)" value="Michael Caine" />
-            <input type="text" id="cloneId" class="sync-input" placeholder="Voice ID (e.g. michael_caine)" value="michael_caine" style="max-width:140px;" />
+            <input type="text" id="cloneName" class="sync-input" placeholder="Display Name" value="Michael Caine" />
+            <input type="text" id="cloneId" class="sync-input" placeholder="Voice ID" value="michael_caine" style="max-width:130px;" />
           </div>
           <div style="font-size:11px; color:#fff; font-weight:700; margin-bottom:6px;">Select Audio or Video Clip (15s - 60s)</div>
-          <input type="file" id="cloneFile" accept="audio/*,video/*" style="font-size:11px; color:var(--cyan); margin-bottom:10px; width:100%;" />
-          <button class="hud-btn" style="width:100%; height:32px; font-size:11px; font-weight:700;" onclick="executeVoiceClone()">CLONE VOICE PROFILE</button>
+          <input type="file" id="cloneFile" accept="audio/*,video/*" style="font-size:10px; color:var(--cyan); margin-bottom:10px; width:100%;" />
+          <button class="hud-btn" style="width:100%; height:30px; font-size:10px;" onclick="executeVoiceClone()">CLONE VOICE PROFILE</button>
           <div id="cloneStatus" style="margin-top:10px; font-size:10px; color:#888;">Ready to clone audio sample into VoiceStudio.</div>
         </div>
       </div>
 
-      <!-- Reverse Engineer Tab -->
-      <div id="drawer-reverse" class="drawer-content">
-        <div style="font-size:10px; margin-bottom:6px; color:rgba(0,229,255,0.7);">WEB ARCHITECTURE REVERSE ENGINEER</div>
-        <input type="text" id="reUrlInput" class="hud-input" placeholder="https://example.com" style="margin-bottom:8px; font-size:11px; width:100%;" />
-        <button class="hud-btn" style="width:100%; height:28px; font-size:10px; margin-bottom:8px;" onclick="runReverseEngineer()">EXECUTE TEARDOWN</button>
-        <div id="reReportOutput" style="font-size:10px; line-height:1.4; white-space:pre-wrap; background:rgba(0,10,20,0.9); padding:8px; border:1px solid var(--panel-border); max-height:220px; overflow-y:auto;">Enter target URL above and click execute...</div>
+      <!-- =====================================================
+           8. JARVIS COMPUTER VISION + BIOMETRIC PROFILE TAB
+           ===================================================== -->
+      <div id="drawer-bio" class="drawer-content">
+        <div style="font-size:10px; color:var(--cyan-bright); margin-bottom:6px;">// JARVIS MULTIMODAL COMPUTER VISION (WEBCAM & SCREEN)</div>
+        <div style="background:rgba(0,18,36,0.88); border:1px solid var(--panel-border); padding:10px; margin-bottom:10px;">
+          <video id="visionVideo" autoplay playsinline muted style="width:100%; max-height:150px; background:#000; border:1px solid var(--cyan); display:none; margin-bottom:6px; object-fit:cover;"></video>
+          <canvas id="visionCanvas" style="display:none;"></canvas>
+          <input type="text" id="visionPromptInput" class="sync-input" value="What am I looking at? Analyze this concisely." style="width:100%; margin-bottom:6px;" />
+          <div style="display:flex; gap:5px;">
+            <button class="hud-btn" style="flex:1; height:26px; font-size:8.5px;" onclick="toggleVisionCamera()" id="visionCamBtn">📷 START CAM</button>
+            <button class="hud-btn" style="flex:1; height:26px; font-size:8.5px;" onclick="captureAndAnalyzeVision('webcam')">🔍 ANALYZE CAM</button>
+            <button class="hud-btn" style="flex:1; height:26px; font-size:8.5px;" onclick="captureAndAnalyzeVision('screen')">🖥️ SCAN SCREEN</button>
+          </div>
+          <div id="visionOutput" style="margin-top:6px; font-size:10px; color:var(--green); line-height:1.35;">Click SCAN SCREEN or START CAM to let Alfred inspect what you see.</div>
+        </div>
+
+        <div style="font-size:10px; color:var(--cyan-bright); margin-bottom:6px;">// SUBJECT BIOMETRIC & NEURAL PROFILE</div>
+        <div style="background:rgba(0,18,36,0.85); border:1px solid var(--panel-border); padding:10px;">
+          <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--panel-border); padding-bottom:6px; margin-bottom:8px;">
+            <div>
+              <div style="font-family:var(--font-display); font-size:13px; color:#fff; font-weight:800;">RAMOS, JUAN MANUEL // REMMY</div>
+              <div style="font-size:9.5px; color:var(--cyan);">CLEARANCE: OMEGA // BATCAVE COMMAND</div>
+            </div>
+            <span class="device-status-badge badge-on">VITALS NOMINAL</span>
+          </div>
+          <div class="stat-row"><span class="label">HEART RATE</span><span class="value" style="color:var(--green);">62 BPM (RESTING)</span></div>
+          <div class="stat-row"><span class="label">CORE TEMP</span><span class="value">98.4 °F</span></div>
+          <div class="stat-row"><span class="label">NEURAL INTERFACE</span><span class="value" style="color:var(--cyan);">BCv1.2 DIRECT LINK</span></div>
+          <div class="stat-row"><span class="label">HOTKEY / BARGE-IN</span><span class="value" style="color:var(--green);">ALT + SPACE ACTIVE</span></div>
+        </div>
       </div>
 
-      <!-- Memory Vault Tab -->
-      <div id="drawer-memory" class="drawer-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <div style="font-size:10px; color:rgba(0,229,255,0.7);">PERSISTENT LONG-TERM MEMORY</div>
-          <button class="hud-btn" style="height:20px; font-size:9px; padding:0 6px;" onclick="purgeWorkingBuffer()">PURGE BUFFER</button>
-        </div>
-        <div id="memoryList" style="max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">Loading memory...</div>
-        
-        <div style="display:flex; gap:4px; margin-bottom:4px;">
-          <input type="text" id="newMemFact" class="hud-input" placeholder="New memory fact (e.g. Master prefers...)" style="flex:1; font-size:10px;" />
-          <button class="hud-btn" style="height:26px; font-size:9px;" onclick="addMemoryFromUI()">RECORD</button>
-        </div>
-      </div>
     </div>
 
-    <!-- BOTTOM ROW: Alfred Voice AI Terminal & Oscilloscope -->
+    <!-- =====================================================
+         BOTTOM ROW: ALFRED VOICE AI TERMINAL & OSCILLOSCOPE
+         ===================================================== -->
     <div class="alfred-core">
       <div>
         <div style="font-size:10px; margin-bottom:4px; display:flex; justify-content:space-between;">
-          <span>OSCILLOSCOPE</span>
+          <span>OSCILLOSCOPE // MLX VAD</span>
           <span class="status-badge" id="audioState">STANDBY</span>
         </div>
         <div class="visualizer-box">
@@ -840,36 +1641,39 @@
         </div>
       </div>
 
-      <div style="display:flex; flex-direction:column; gap:6px;">
+      <div style="display:flex; flex-direction:column; gap:5px;">
         <div class="alfred-speech-bubble" id="alfredOutput">
-          "Good day, Master Bruce. All Batcave telemetry links, local neural models, and audio synthesis pipelines are operational. Standing by for your instructions, sir."
+          "Good day, Master Ramos. 'Puter online. Say 'Computer', 'Puter', 'Hey Computer', or 'Hey Puter' for fast commands—or I will autonomously dispatch Alfred (Hermes Agent) for heavy workloads."
         </div>
         <div class="input-bar">
-          <input type="text" id="cmdInput" class="hud-input" placeholder="Issue directive to Alfred (e.g. 'What is on my schedule?', 'Turn on the TV', 'Reverse engineer https://...')..." />
+          <input type="text" id="cmdInput" class="hud-input" placeholder="Say 'Computer' / 'Puter' / 'Hey Computer' / 'Hey Puter' (or press Alt+Space, 'Ask Alfred to...')..." />
           <button id="sendBtn" class="hud-btn">EXECUTE</button>
-          <button id="micBtn" class="hud-btn">
+          <button id="micBtn" class="hud-btn" title="Ultra-fast MLX-Whisper Mic with Auto-Silence Detection (Shortcut: Alt+Space)">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
               <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
             </svg>
-            MIC
+            MIC (MLX)
           </button>
-          <button id="liveCommBtn" class="hud-btn" style="border-color: rgba(0, 229, 255, 0.4); background: rgba(0, 229, 255, 0.05); min-width: 110px;" title="Continuous live conversation mode">
-            <span id="liveCommDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:rgba(0,229,255,0.4); margin-right:5px; vertical-align:middle;"></span>
+          <button id="liveCommBtn" class="hud-btn" style="border-color: rgba(0, 229, 255, 0.4); background: rgba(0, 229, 255, 0.05);" title="Continuous hands-free conversation with Barge-In">
+            <span id="liveCommDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:rgba(0,229,255,0.4);"></span>
             LIVE COMM
           </button>
-          <button id="wakeBtn" class="hud-btn" onclick="toggleWakeWord()" style="border-color: rgba(0, 229, 255, 0.4); background: rgba(0, 229, 255, 0.05); min-width: 140px;" title="Voice Wake Word: Say 'Alfred' or 'Hey Alfred' to command hands-free">
-            <span id="wakeDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:rgba(0,229,255,0.4); margin-right:5px; vertical-align:middle;"></span>
-            WAKE: "ALFRED"
+          <button id="wakeBtn" class="hud-btn" onclick="toggleWakeWord()" style="border-color: rgba(0, 229, 255, 0.4); background: rgba(0, 229, 255, 0.05);" title="Say 'Computer', 'Puter', 'Hey Computer', or 'Hey Puter' hands-free">
+            <span id="wakeDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:rgba(0,229,255,0.4);"></span>
+            WAKE: "COMPUTER / PUTER"
           </button>
         </div>
       </div>
 
-      <div style="display:flex; flex-direction:column; gap:6px;">
-        <div style="font-size:10px; color:#fff; letter-spacing:1px;">QUICK DIRECTIVES</div>
-        <button class="hud-btn" style="width:100%; height:26px; font-size:10px;" onclick="triggerQuick('What is on my schedule today?')">CHECK SCHEDULE</button>
-        <button class="hud-btn" style="width:100%; height:26px; font-size:10px;" onclick="triggerQuick('Turn on the tv')">POWER ON TV</button>
-        <button class="hud-btn" style="width:100%; height:26px; font-size:10px;" onclick="triggerQuick('Status report')">SYSTEM STATUS</button>
+      <div style="display:flex; flex-direction:column; gap:5px;">
+        <div style="font-size:9.5px; color:#fff; letter-spacing:1px; font-family:var(--font-display);">JARVIS TACTICAL DIRECTIVES</div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
+          <button class="hud-btn" style="height:26px; font-size:8.5px; padding:0 6px;" onclick="triggerBriefing()">🌅 BRIEFING</button>
+          <button class="hud-btn" style="height:26px; font-size:8.5px; padding:0 6px;" onclick="triggerQuick('Activate movie mode')">🎬 MOVIE MODE</button>
+          <button class="hud-btn" style="height:26px; font-size:8.5px; padding:0 6px;" onclick="switchDrawer('bio'); captureAndAnalyzeVision('screen');">👁️ SCAN SCREEN</button>
+          <button class="hud-btn" style="height:26px; font-size:8.5px; padding:0 6px;" onclick="switchDrawer('reverse'); runReverseEngineer();">🧬 TEARDOWN</button>
+        </div>
       </div>
     </div>
 
@@ -884,6 +1688,7 @@
     let audioSource = null;
     let mediaRecorder = null;
     let audioChunks = [];
+    let vadSilenceTimer = null;
 
     function initAudio() {
       if (!audioCtx) {
@@ -894,18 +1699,20 @@
         audioSource = audioCtx.createMediaElementSource(audioElement);
         audioSource.connect(analyser);
         analyser.connect(audioCtx.destination);
-        drawVisualizer();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
       }
     }
 
-    function playBeep(freq = 880, type = 'sine', duration = 0.08) {
+    function playBeep(freq = 880, type = 'sine', duration = 0.07) {
       try {
         if (!audioCtx) audioCtx = new AudioContext();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
@@ -914,6 +1721,7 @@
       } catch (e) {}
     }
 
+    // Oscilloscope Visualizer
     const canvas = document.getElementById('audioVisualizer');
     const ctx = canvas.getContext('2d');
 
@@ -929,7 +1737,7 @@
         analyser.getByteFrequencyData(dataArray);
       } else {
         for (let i = 0; i < bufferLength; i++) {
-          dataArray[i] = Math.sin(Date.now() / 300 + i) * 12 + 10;
+          dataArray[i] = Math.sin(Date.now() / 280 + i) * 10 + 10;
         }
       }
 
@@ -949,13 +1757,36 @@
     }
     drawVisualizer();
 
+    // Galactic Standard Time Clock + Mini Calendar Builder
     function updateClock() {
       const now = new Date();
       document.getElementById('liveClock').innerText = now.toTimeString().split(' ')[0];
+      const opts = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      const dateEl = document.getElementById('liveDate');
+      if (dateEl) dateEl.innerText = now.toLocaleDateString('en-US', opts).toUpperCase();
     }
     setInterval(updateClock, 1000);
     updateClock();
 
+    function buildMiniCalendar() {
+      const grid = document.getElementById('miniMonthGrid');
+      if (!grid) return;
+      const now = new Date();
+      const today = now.getDate();
+      const days = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+      let html = days.map(d => `<div class="cal-hdr">${d}</div>`).join('');
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
+      const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      for (let i = 0; i < firstDay; i++) html += `<div></div>`;
+      for (let d = 1; d <= totalDays; d++) {
+        const cls = d === today ? 'cal-today' : '';
+        html += `<div class="${cls}">${d}</div>`;
+      }
+      grid.innerHTML = html;
+    }
+    buildMiniCalendar();
+
+    // Load Models & Voices
     async function loadConfigOptions() {
       try {
         const mRes = await fetch('/api/models');
@@ -965,7 +1796,7 @@
 
         if (mData.omniroute_models && mData.omniroute_models.length > 0) {
           const ogOmni = document.createElement('optgroup');
-          ogOmni.label = '⚡ OMNIROUTE (ANTIGRAVITY)';
+          ogOmni.label = '⚡ OMNIROUTE (SUB-SECOND)';
           mData.omniroute_models.forEach(m => {
             const opt = document.createElement('option');
             opt.value = m;
@@ -993,7 +1824,7 @@
         const vData = await vRes.json();
         const vSel = document.getElementById('voiceSelect');
         vSel.innerHTML = '';
-        const savedVoice = localStorage.getItem('batcomputer_voice') || vData.current_voice || 'michael_caine';
+        const savedVoice = vData.current_voice || 'daniel';
         vData.available_voices.forEach(v => {
           const opt = document.createElement('option');
           opt.value = v.id;
@@ -1026,6 +1857,217 @@
       playBeep(880, 'sine', 0.05);
     }
 
+    // =====================================================
+    // TOOLS HUB: LOAD, TOGGLE & CONFIGURE CONNECTED TOOLS
+    // =====================================================
+    async function loadToolsHub() {
+      try {
+        const res = await fetch('/api/tools/config');
+        const data = await res.json();
+        const cfg = data.config || {};
+        const tools = cfg.tools || {};
+
+        let enabledCount = 0;
+        ['home_assistant', 'beszel', 'mail', 'calendar', 'github', 'hermes'].forEach(k => {
+          const t = tools[k] || {};
+          const cb = document.getElementById('toggle-' + k);
+          const card = document.getElementById('card-' + k);
+          const isOn = t.enabled !== false;
+          if (isOn) enabledCount++;
+          if (cb) cb.checked = isOn;
+          if (card) {
+            card.classList.toggle('connected', isOn);
+            card.classList.toggle('disconnected', !isOn);
+          }
+        });
+
+        if (data.hermes_tasks && data.hermes_tasks.length > 0) {
+          const hOut = document.getElementById('hermesTaskOutput');
+          const last = data.hermes_tasks[0];
+          if (hOut) hOut.innerHTML = `✓ Last task (${last.timestamp || last.ts || 'recent'} // ${last.latency_ms}ms): <span style="color:#fff;">${last.output || last.reply}</span>`;
+        }
+
+        const badge = document.getElementById('activeToolsCountBadge');
+        if (badge) badge.innerText = `${enabledCount} TOOLS LINKED`;
+
+        if (tools.mail) {
+          const emailInput = document.getElementById('mailAddressInput');
+          if (emailInput && tools.mail.email) emailInput.value = tools.mail.email;
+        }
+        if (tools.github && tools.github.default_repo) {
+          const ghInput = document.getElementById('toolsGithubRepoInput');
+          if (ghInput) ghInput.value = tools.github.default_repo;
+        }
+        if (tools.whisper && tools.whisper.model) {
+          const wSel = document.getElementById('whisperModelSelect');
+          if (wSel) wSel.value = tools.whisper.model;
+        }
+
+        // Load Beszel Fleet Telemetry
+        if (data.beszel && data.beszel.systems) {
+          renderBeszelSystems(data.beszel.systems);
+        } else {
+          fetchBeszelStatus();
+        }
+
+        // Load Mail Status
+        if (data.mail) {
+          renderMailSummary(data.mail);
+        }
+      } catch (e) {
+        console.error('Tools Hub load error:', e);
+      }
+    }
+
+    function renderBeszelSystems(systems) {
+      const leftBox = document.getElementById('leftBeszelList');
+      const toolsBox = document.getElementById('toolsBeszelPreview');
+      if (!systems || systems.length === 0) {
+        if (leftBox) leftBox.innerHTML = `<div style="font-size:9.5px; color:#888;">No Beszel nodes found.</div>`;
+        return;
+      }
+
+      let leftHtml = '';
+      let toolsHtml = '';
+      systems.forEach(s => {
+        const isUp = s.status === 'up';
+        const statusColor = isUp ? 'var(--green)' : '#ff4444';
+        leftHtml += `
+          <div style="background:rgba(0,20,40,0.75); border:1px solid rgba(0,229,255,0.22); padding:6px 8px; border-radius:2px;">
+            <div style="display:flex; justify-content:space-between; font-size:10px; font-weight:700;">
+              <span style="color:#fff;">🖥️ ${s.name.toUpperCase()} (${s.host})</span>
+              <span style="color:${statusColor};">${s.status.toUpperCase()} // ${s.temp_c}°C</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:9.5px; color:rgba(0,229,255,0.8); margin-top:2px;">
+              <span>CPU: ${s.cpu_pct}%</span>
+              <span>RAM: ${s.mem_pct}%</span>
+              <span>DISK: ${s.disk_pct}%</span>
+            </div>
+          </div>
+        `;
+        toolsHtml += `<div>✓ <strong>${s.name}</strong> (${s.host}): CPU <strong>${s.cpu_pct}%</strong> | RAM <strong>${s.mem_pct}%</strong> | Temp <strong>${s.temp_c}°C</strong></div>`;
+      });
+
+      if (leftBox) leftBox.innerHTML = leftHtml;
+      if (toolsBox) toolsBox.innerHTML = toolsHtml;
+    }
+
+    async function fetchBeszelStatus() {
+      try {
+        const res = await fetch('/api/tools/beszel');
+        const data = await res.json();
+        if (data.systems) renderBeszelSystems(data.systems);
+      } catch (e) {}
+    }
+
+    function renderMailSummary(mail) {
+      const st = document.getElementById('mailStatusText');
+      const prev = document.getElementById('mailMessagesPreview');
+      if (!st) return;
+
+      if (mail.connected) {
+        st.innerHTML = `<span style="color:var(--green);">✓ CONNECTED (${mail.unread_count} UNREAD)</span>`;
+        if (prev && mail.messages && mail.messages.length > 0) {
+          prev.innerHTML = mail.messages.map(m =>
+            `<div style="border-top:1px solid rgba(0,229,255,0.15); padding:4px 0; color:#ddd;">• <strong>${m.subject}</strong> <span style="color:var(--cyan);">(${m.from})</span></div>`
+          ).join('');
+        }
+      } else {
+        st.innerHTML = `<span style="color:var(--amber);">⚠️ ${mail.status || 'App Password required for IMAP'}</span>`;
+      }
+    }
+
+    async function toggleTool(toolKey, enabled) {
+      playBeep(enabled ? 980 : 520, 'sine', 0.05);
+      try {
+        await fetch('/api/tools/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tools: { [toolKey]: { enabled } } })
+        });
+        loadToolsHub();
+      } catch (e) {}
+    }
+
+    async function saveWhisperConfig() {
+      const model = document.getElementById('whisperModelSelect').value;
+      playBeep(1040, 'sine', 0.05);
+      await fetch('/api/tools/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tools: { whisper: { model } } })
+      });
+    }
+
+    async function saveMailConfig() {
+      const email = document.getElementById('mailAddressInput').value.trim();
+      const app_password = document.getElementById('mailPassInput').value.trim();
+      const st = document.getElementById('mailStatusText');
+      st.innerText = 'Authenticating IMAP SSL...';
+      playBeep(880, 'sine', 0.05);
+
+      const payload = { tools: { mail: { enabled: true, email } } };
+      if (app_password) payload.tools.mail.app_password = app_password;
+
+      await fetch('/api/tools/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const res = await fetch('/api/tools/mail');
+      const mailData = await res.json();
+      renderMailSummary(mailData);
+    }
+
+    async function syncCalendarFromTools() {
+      const url = document.getElementById('toolsCalUrlInput').value.trim();
+      if (!url) return alert('Paste a valid .ics calendar URL first.');
+      document.getElementById('calUrlInput').value = url;
+      await syncCalendarUrl();
+      alert('Calendar feed synced!');
+    }
+
+    function openRepoTeardownFromTools() {
+      const repo = document.getElementById('toolsGithubRepoInput').value.trim() || 'Juanmanuelrd17/alfred-batcomputer';
+      document.getElementById('reUrlInput').value = repo;
+      switchDrawer('reverse');
+      runReverseEngineer();
+    }
+
+    function selectTeardownPreset(target) {
+      document.getElementById('reUrlInput').value = target;
+      runReverseEngineer();
+    }
+
+    async function dispatchHermesFromTools() {
+      const inp = document.getElementById('hermesTaskInput');
+      const out = document.getElementById('hermesTaskOutput');
+      const task = inp ? inp.value.trim() : '';
+      if (!task) return alert('Enter a heavy workload instruction for Alfred (Hermes Agent).');
+      out.innerHTML = `<span style="color:var(--cyan);">⚡ Dispatching Alfred (/Users/jmrd/.local/bin/hermes)...</span>`;
+      playBeep(920, 'sine', 0.05);
+      try {
+        const res = await fetch('/api/hermes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task })
+        });
+        const data = await res.json();
+        const replyText = data.output || data.reply || 'Task completed.';
+        out.innerHTML = `✓ <strong>[ALFRED // ${data.latency_ms || 0}ms]</strong>: <span style="color:#fff;">${replyText}</span>`;
+        document.getElementById('alfredOutput').innerHTML = `"Alfred (Hermes Agent) completed the workload: ${replyText}" <span style="font-size:9px; color:var(--green);">[🤖 HERMES ${data.latency_ms || 0}ms]</span>`;
+        inp.value = '';
+      } catch (e) {
+        out.innerHTML = `<span style="color:#ff4444;">Hermes Agent error: ${e.message}</span>`;
+      }
+    }
+
+    loadToolsHub();
+
+    // =====================================================
+    // AUDIO PLAYBACK & AUTO-WAKE RESUME
+    // =====================================================
     function playAlfredAudio(audioUrl) {
       const audio = document.getElementById('alfredAudio');
       if (!audio) return;
@@ -1035,11 +2077,10 @@
       }
       audio.src = audioUrl;
       document.getElementById('audioState').innerText = 'SPEAKING';
-      
+
       const playPromise = audio.play();
       if (playPromise !== undefined) {
-        playPromise.catch(err => {
-          console.warn('Autoplay blocked by browser policy:', err);
+        playPromise.catch(() => {
           document.getElementById('audioState').innerText = 'TAP TO PLAY';
           const outputEl = document.getElementById('alfredOutput');
           const existingBtn = document.getElementById('tapPlayBtn');
@@ -1047,7 +2088,7 @@
           const tapBtn = document.createElement('button');
           tapBtn.id = 'tapPlayBtn';
           tapBtn.className = 'hud-btn';
-          tapBtn.style.cssText = 'display:inline-block; margin-top:8px; border-color:var(--cyan); background:rgba(0,229,255,0.15); color:var(--cyan); padding:4px 10px; font-size:11px; cursor:pointer;';
+          tapBtn.style.cssText = 'display:inline-block; margin-top:6px; height:24px; font-size:10px;';
           tapBtn.innerHTML = '🔊 TAP TO HEAR ALFRED';
           tapBtn.onclick = () => { audio.play(); tapBtn.remove(); };
           outputEl.appendChild(document.createElement('br'));
@@ -1061,41 +2102,37 @@
         const tapBtn = document.getElementById('tapPlayBtn');
         if (tapBtn) tapBtn.remove();
         if (isLiveComm) {
-          setTimeout(() => {
-            if (isLiveComm) startLiveListening();
-          }, 500);
+          setTimeout(() => { if (isLiveComm) startLiveListening(); }, 350);
+        } else {
+          // OPEN SEAMLESS 10-SECOND CONVERSATION FOLLOW-UP WINDOW
+          startFollowUpWindow(10);
         }
         if (isWakeActive && wakeRecognizer) {
           setTimeout(() => {
-            if (isWakeActive && !isAlfredSpeaking) {
-              const dot = document.getElementById('wakeDot');
-              if (dot) { dot.style.background = 'var(--cyan)'; dot.style.boxShadow = '0 0 8px var(--cyan)'; }
+            if (isWakeActive && !isAlfredSpeaking && !isFollowUpActive) {
               try { wakeRecognizer.start(); } catch(e) {}
             }
-          }, 400);
+          }, 300);
         }
       };
     }
 
-
-    // ==========================================
+    // =====================================================
     // SMART HOME HUB & DEVICE ACTIONS
-    // ==========================================
+    // =====================================================
     async function controlDevice(domain, service, entityId, extra = {}) {
+      playBeep(760, 'sine', 0.05);
       try {
-        const res = await fetch('/api/smart-home/control', {
+        await fetch('/api/smart-home/control', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ domain, service, entity_id: entityId, extra })
         });
-        const data = await res.json();
         fetchTelemetry();
         if (document.getElementById('drawer-home').classList.contains('active')) {
           loadSmartHomeDrawer();
         }
-      } catch (e) {
-        console.error('Control error:', e);
-      }
+      } catch (e) {}
     }
 
     async function loadSmartHomeDrawer() {
@@ -1103,10 +2140,8 @@
       try {
         const res = await fetch('/api/smart-home/devices');
         const data = await res.json();
-        
         let htmlStr = '';
-        
-        // 1. Sony BRAVIA TV & Sonos
+
         const tv = data.tv || {};
         const tvIsOn = tv.state === 'on';
         htmlStr += `
@@ -1123,7 +2158,6 @@
           </div>
         `;
 
-        // 2. Thermostat
         const th = data.thermostat || {};
         htmlStr += `
           <div class="device-card">
@@ -1132,22 +2166,20 @@
               <span class="device-status-badge badge-on">${th.temp_f || 72}°F</span>
             </div>
             <div style="font-size:9px; color:#888;">HVAC Action: <span style="color:#00ff88;">${th.action || 'Cooling'}</span> | Humidity: ${th.humidity || 60}%</div>
-            <div style="font-size:9px; color:#aaa; margin-top:2px;">Entity: ${th.entity_id}</div>
           </div>
         `;
 
-        // 3. Lighting Matrix
         if (data.lights && data.lights.length > 0) {
-          htmlStr += `<div style="font-size:10px; color:rgba(0,229,255,0.7); margin:8px 0 4px 0;">// LIGHTING ARRAYS</div>`;
+          htmlStr += `<div style="font-size:10px; color:rgba(0,229,255,0.7); margin:6px 0 4px 0;">// LIGHTING ARRAYS</div>`;
           data.lights.forEach(l => {
             const isOn = l.state === 'on';
             htmlStr += `
-              <div class="device-card" style="padding:8px 10px; margin-bottom:6px;">
+              <div class="device-card" style="padding:6px 10px; margin-bottom:5px;">
                 <div class="device-row">
                   <span class="device-title">💡 ${l.name}</span>
                   <div style="display:flex; align-items:center; gap:8px;">
                     <span class="device-status-badge ${isOn ? 'badge-on' : 'badge-off'}">${l.state}</span>
-                    <button class="hud-btn" style="font-size:9px; height:22px; padding:0 8px;" onclick="controlDevice('light', 'toggle', '${l.entity_id}')">TOGGLE</button>
+                    <button class="hud-btn" style="font-size:8.5px; height:22px; padding:0 8px;" onclick="controlDevice('light', 'toggle', '${l.entity_id}')">TOGGLE</button>
                   </div>
                 </div>
               </div>
@@ -1155,23 +2187,18 @@
           });
         }
 
-        // 4. Fans & Switches
-        if (data.switches && data.switches.length > 0) {
-          htmlStr += `<div style="font-size:10px; color:rgba(0,229,255,0.7); margin:8px 0 4px 0;">// VENTILATION & SWITCHES</div>`;
-          data.switches.forEach(s => {
-            const isOn = s.state === 'on';
-            htmlStr += `
-              <div class="device-card" style="padding:8px 10px; margin-bottom:6px;">
-                <div class="device-row">
-                  <span class="device-title">🌀 ${s.name}</span>
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <span class="device-status-badge ${isOn ? 'badge-on' : 'badge-off'}">${s.state}</span>
-                    <button class="hud-btn" style="font-size:9px; height:22px; padding:0 8px;" onclick="controlDevice('switch', 'toggle', '${s.entity_id}')">TOGGLE</button>
-                  </div>
-                </div>
+        if (data.printer_3d) {
+          const p = data.printer_3d;
+          htmlStr += `
+            <div style="font-size:10px; color:rgba(0,229,255,0.7); margin:6px 0 4px 0;">// 3D FABRICATION LAB</div>
+            <div class="device-card">
+              <div class="device-row">
+                <span class="device-title">🖨️ ${p.name}</span>
+                <span class="device-status-badge ${p.online ? 'badge-on' : 'badge-off'}">${(p.state || 'idle').toUpperCase()} (${p.progress_pct || 0}%)</span>
               </div>
-            `;
-          });
+              <div style="font-size:9px; color:#aaa;">Job: ${p.job_name || 'None'} | Nozzle: ${p.nozzle_temp_c}°C | Bed: ${p.bed_temp_c}°C</div>
+            </div>
+          `;
         }
 
         container.innerHTML = htmlStr;
@@ -1180,90 +2207,49 @@
       }
     }
 
-    // ==========================================
-    // CALENDAR SYNC ENGINE
-    // ==========================================
-    async function syncCalendarUrl() {
-      const url = document.getElementById('calUrlInput').value.trim();
-      const statusEl = document.getElementById('calSyncStatus');
-      statusEl.innerText = 'SYNCING...';
-      statusEl.style.color = 'var(--cyan)';
-      try {
-        const res = await fetch('/api/calendar/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
-        });
-        const data = await res.json();
-        statusEl.innerText = `SYNCED (${data.count} EVENTS)`;
-        statusEl.style.color = '#00ff88';
-        loadCalendarAgenda();
-      } catch (e) {
-        statusEl.innerText = 'SYNC ERROR';
-        statusEl.style.color = '#ff4444';
-      }
-    }
-
-    // ==========================================
-    // VOICE CLONING (MICHAEL CAINE / CUSTOM)
-    // ==========================================
-    async function executeVoiceClone() {
-      const name = document.getElementById('cloneName').value.trim();
-      const voiceId = document.getElementById('cloneId').value.trim();
-      const fileInput = document.getElementById('cloneFile');
-      const statusEl = document.getElementById('cloneStatus');
-
-      if (!fileInput.files || fileInput.files.length === 0) {
-        alert('Please select a 15-60s video or audio file first.');
-        return;
-      }
-
-      const file = fileInput.files[0];
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('name', name);
-      formData.append('voice_id', voiceId);
-
-      statusEl.innerHTML = '<span style="color:var(--cyan);">[1/3] Extracting 24kHz audio and transcribing via Faster-Whisper...</span>';
-
-      try {
-        const res = await fetch('/api/voice/clone', {
-          method: 'POST',
-          body: formData
-        });
-        const data = await res.json();
-        if (data.success) {
-          statusEl.innerHTML = `<span style="color:#00ff88; font-weight:700;">✓ Voice Cloned Successfully! Profile ID: ${data.profile_id}</span><br><span style="color:#aaa;">Transcribed: "${data.transcript}"</span>`;
-          loadConfigOptions(); // reload voices dropdown
-        } else {
-          statusEl.innerHTML = `<span style="color:#ff4444;">Cloning failed: ${data.detail || 'Unknown error'}</span>`;
-        }
-      } catch (e) {
-        statusEl.innerHTML = `<span style="color:#ff4444;">Network/Upload error: ${e.message}</span>`;
-      }
+    // =====================================================
+    // TELEMETRY & CIRCULAR ARC GAUGE UPDATES
+    // =====================================================
+    function setArcGauge(circleId, percent) {
+      const el = document.getElementById(circleId);
+      if (!el) return;
+      const circumference = 138;
+      const clamped = Math.max(0, Math.min(100, percent));
+      const offset = circumference - (clamped / 100) * circumference;
+      el.style.strokeDashoffset = offset;
     }
 
     async function fetchTelemetry() {
       try {
         const res = await fetch('/api/telemetry');
         const data = await res.json();
-        document.getElementById('cpuPct').innerText = data.cpu.percent + '%';
-        document.getElementById('cpuBar').style.width = Math.min(data.cpu.percent, 100) + '%';
-        document.getElementById('memUsage').innerText = data.memory.used_gb + 'G / ' + data.memory.total_gb + 'G';
-        document.getElementById('memBar').style.width = data.memory.percent + '%';
-        document.getElementById('diskUsage').innerText = (data.disk.total_gb - data.disk.used_gb).toFixed(0) + 'G FREE';
-        document.getElementById('diskBar').style.width = data.disk.percent + '%';
-        document.getElementById('netTailscale').innerText = data.network.tailscale_ip;
-        document.getElementById('netGateway').innerText = data.network.gateway;
-        document.getElementById('sysUptime').innerText = data.uptime.formatted;
+        const cpu = data.cpu.percent || 5;
+        const memPct = data.memory.percent || 50;
 
-        // Fetch Home Assistant Smart Home Fleet State
+        if (!localBridgeOnline) {
+          document.getElementById('cpuPct').innerText = cpu + '%';
+          document.getElementById('cpuArcText').innerText = Math.round(cpu) + '%';
+          setArcGauge('cpuArcFill', cpu);
+
+          document.getElementById('ramGaugeVal').innerText = data.memory.used_gb + ' G';
+          document.getElementById('ramArcPct').innerText = Math.round(memPct) + '%';
+          document.getElementById('memUsage').innerText = data.memory.used_gb + 'G / ' + data.memory.total_gb + 'G';
+          setArcGauge('ramArcFill', memPct);
+          document.getElementById('diskUsage').innerText = (data.disk.total_gb - data.disk.used_gb).toFixed(0) + 'G FREE';
+        }
+
+        document.getElementById('cpuBar').style.width = Math.min(cpu, 100) + '%';
+        document.getElementById('sysUptime').innerText = data.uptime.formatted;
+        const m1Summary = document.getElementById('m1HostSummary');
+        if (m1Summary) m1Summary.innerText = `CPU ${cpu}% // RAM ${data.memory.used_gb}G`;
+
+        // Fetch Smart Home summary
         const dRes = await fetch('/api/smart-home/devices');
         const dData = await dRes.json();
         if (dData.tv && document.getElementById('tvState')) {
           const tvOn = dData.tv.state === 'on';
           document.getElementById('tvState').innerText = (dData.tv.state || 'OFF').toUpperCase() + ' (BRAVIA 85")';
-          document.getElementById('tvState').style.color = tvOn ? '#00ff88' : '#888888';
+          document.getElementById('tvState').style.color = tvOn ? 'var(--green)' : '#888';
         }
         if (dData.thermostat && document.getElementById('thermoTemp')) {
           document.getElementById('thermoTemp').innerText = (dData.thermostat.temp_f || 72) + '°F (' + (dData.thermostat.action || 'COOLING').toUpperCase() + ')';
@@ -1273,110 +2259,431 @@
           const onCount = dData.lights.filter(l => l.state === 'on').length;
           document.getElementById('lightsSummary').innerText = onCount + ' OF ' + dData.lights.length + ' ACTIVE';
         }
-      } catch (e) {
-        console.error('Telemetry fetch error:', e);
-      }
-    }
-    setInterval(fetchTelemetry, 3000);
-    fetchTelemetry();
-
-    async function checkTV() {
-      try {
-        const res = await fetch('/api/smart-home/tv');
-        const data = await res.json();
-        document.getElementById('tvState').innerText = data.success ? data.state.toUpperCase() : 'OFFLINE';
-      } catch (e) {
-        document.getElementById('tvState').innerText = 'UNKNOWN';
-      }
-    }
-    checkTV();
-    setInterval(checkTV, 10000);
-
-    async function controlTV(action) {
-      playBeep(700, 'sine', 0.06);
-      try {
-        await fetch('/api/smart-home/tv', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action })
-        });
-        setTimeout(checkTV, 1000);
       } catch (e) {}
     }
+    setInterval(fetchTelemetry, 3500);
+    fetchTelemetry();
+    setInterval(fetchBeszelStatus, 10000);
+
+    // =====================================================
+    // DRAWER NAVIGATION & LOCAL DESKTOP OS SHELL BRIDGE
+    // =====================================================
+    const LOCAL_BRIDGE_URL = 'http://127.0.0.1:7778';
+    let currentLocalDir = '/home/jmrd';
+    let currentLocalParent = '/home';
+    let localBridgeOnline = false;
 
     function switchDrawer(tab) {
-      document.querySelectorAll('.drawer-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.drawer-tab').forEach(t => {
+        t.classList.toggle('active', t.getAttribute('data-tab') === tab);
+      });
+      document.querySelectorAll('.orbital-node').forEach(n => {
+        n.classList.toggle('active', n.id === 'orb-' + tab);
+      });
       document.querySelectorAll('.drawer-content').forEach(c => c.classList.remove('active'));
-      
-      const tabOrder = ['brain', 'calendar', 'home', 'clone', 'memory', 'reverse'];
-      const idx = tabOrder.indexOf(tab);
-      const allTabs = document.querySelectorAll('.drawer-tab');
-      if (idx !== -1 && allTabs[idx]) {
-        allTabs[idx].classList.add('active');
-      }
-      
+
       const contentEl = document.getElementById('drawer-' + tab);
       if (contentEl) contentEl.classList.add('active');
 
-      if (tab === 'brain') loadBrainNotes();
+      if (tab === 'files') loadLocalFiles(currentLocalDir);
+      else if (tab === 'tools') loadToolsHub();
+      else if (tab === 'brain') loadBrainNotes();
       else if (tab === 'calendar') loadCalendarAgenda();
       else if (tab === 'home') loadSmartHomeDrawer();
-      else if (tab === 'memory') (window.loadMemories || loadMemoryDrawer)();
-      
-      try { playBeep(1046, 'sine', 0.04); } catch (e) {}
+      else if (tab === 'memory') loadMemories();
+
+      playBeep(1046, 'sine', 0.04);
     }
 
-    async function loadMemories() {
+    function openDesktopFolderOrb(folderPath, orbId) {
+      switchDrawer('files');
+      document.querySelectorAll('.orbital-node').forEach(n => n.classList.toggle('active', n.id === orbId));
+      loadLocalFiles(folderPath);
+    }
+
+    function formatFileSize(bytes) {
+      if (!bytes || bytes <= 0) return '';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+      return (bytes / 1073741824).toFixed(2) + ' GB';
+    }
+
+    function getFileIcon(name, isDir) {
+      if (isDir) return '📁';
+      const ext = (name.split('.').pop() || '').toLowerCase();
+      if (['py', 'js', 'ts', 'sh', 'json', 'html', 'css', 'cpp', 'rs', 'go'].includes(ext)) return '🧑‍💻';
+      if (['md', 'txt', 'pdf', 'doc', 'docx'].includes(ext)) return '📄';
+      if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext)) return '🖼️';
+      if (['mp4', 'mkv', 'webm', 'mov', 'mp3', 'wav', 'flac'].includes(ext)) return '🎬';
+      if (['zip', 'tar', 'gz', '7z', 'deb', 'rpm', 'appimage'].includes(ext)) return '📦';
+      return '📄';
+    }
+
+    async function fetchLocalDesktopStatus() {
       try {
-        const res = await fetch('/api/memory');
+        const res = await fetch(`${LOCAL_BRIDGE_URL}/local/status`);
         const data = await res.json();
-        const listEl = document.getElementById('memoryList');
-        listEl.innerHTML = '';
-        if (!data.memories || data.memories.length === 0) {
-          listEl.innerHTML = '<div style="color:rgba(0,229,255,0.5);">No persistent memories recorded.</div>';
+        localBridgeOnline = true;
+        const badge = document.getElementById('localBridgeBadge');
+        if (badge) {
+          badge.className = 'device-status-badge badge-on';
+          badge.innerText = `${(data.host || 'LOCAL PC').toUpperCase()} LINKED`;
+        }
+        const hostLbl = document.getElementById('localFilesHostLabel');
+        if (hostLbl && data.host) {
+          hostLbl.innerText = `// LOCAL DESKTOP SHELL (${data.host.toUpperCase()})`;
+        }
+
+        // Update Local Host CPU, GPU, NVMe, Fans & Top Arc Gauges
+        if (data.hardware) {
+          const hw = data.hardware;
+          if (hw.cpu) {
+            const c = hw.cpu;
+            const cTempColor = c.temp_c >= 78 ? 'var(--red)' : (c.temp_c >= 65 ? 'var(--amber)' : 'var(--green)');
+            const cpuNameEl = document.getElementById('localCpuNameLbl');
+            if (cpuNameEl) cpuNameEl.innerText = `🔥 CPU: ${c.name.toUpperCase().replace('AMD ', '')}`;
+            const cpuValEl = document.getElementById('localCpuMetricsVal');
+            if (cpuValEl) {
+              cpuValEl.style.color = cTempColor;
+              cpuValEl.innerText = `${c.temp_c}°C // ${c.load_pct}% (${c.freq_ghz}GHz)`;
+            }
+            const cpuBarEl = document.getElementById('localCpuLoadBar');
+            if (cpuBarEl) cpuBarEl.style.width = `${Math.max(4, Math.min(100, c.load_pct))}%`;
+
+            // Top-Right Circular Arc Gauge -> Local Ryzen 5800X CPU + Temp!
+            const cpuGaugeTitle = document.getElementById('cpuGaugeTitle');
+            if (cpuGaugeTitle) cpuGaugeTitle.innerText = `CPU // ${c.temp_c}°C`;
+            document.getElementById('cpuPct').innerText = `${c.load_pct}%`;
+            document.getElementById('cpuArcText').innerText = `${Math.round(c.load_pct)}%`;
+            setArcGauge('cpuArcFill', c.load_pct);
+          }
+
+          if (hw.gpu) {
+            const g = hw.gpu;
+            const gTempColor = g.temp_c >= 80 ? 'var(--red)' : (g.temp_c >= 68 ? 'var(--amber)' : 'var(--cyan)');
+            const gpuNameEl = document.getElementById('localGpuNameLbl');
+            if (gpuNameEl) gpuNameEl.innerText = `🎮 GPU: ${g.name.toUpperCase()} (${g.vram_total_gb}G)`;
+            const gpuValEl = document.getElementById('localGpuMetricsVal');
+            if (gpuValEl) {
+              gpuValEl.style.color = gTempColor;
+              gpuValEl.innerText = `${g.temp_c}°C // ${g.load_pct}% (${Math.round(g.power_w)}W)`;
+            }
+            const gpuBarEl = document.getElementById('localGpuLoadBar');
+            if (gpuBarEl) gpuBarEl.style.width = `${Math.max(4, Math.min(100, g.load_pct || g.vram_pct))}%`;
+            const vramEl = document.getElementById('localGpuVramLbl');
+            if (vramEl) vramEl.innerText = `VRAM: ${g.vram_used_gb}G / ${g.vram_total_gb}G`;
+            const diskSub = document.getElementById('diskUsage');
+            if (diskSub) diskSub.innerText = `GPU ${g.temp_c}°C (${g.load_pct}%)`;
+          }
+
+          if (hw.thermals) {
+            const th = hw.thermals;
+            const nvmeEl = document.getElementById('localNvmeTempLbl');
+            if (nvmeEl) nvmeEl.innerText = `NVME: ${th.nvme_temp_c}°C`;
+            const fanEl = document.getElementById('localFansRpmLbl');
+            if (fanEl) fanEl.innerText = `FANS: ${th.max_fan_rpm || 0} RPM`;
+          }
+
+          if (hw.ram) {
+            const rm = hw.ram;
+            const ramTitle = document.getElementById('ramGaugeTitle');
+            if (ramTitle) ramTitle.innerText = `RAM // RIG`;
+            document.getElementById('ramGaugeVal').innerText = `${rm.used_gb} G`;
+            document.getElementById('ramArcPct').innerText = `${Math.round(rm.percent)}%`;
+            document.getElementById('memUsage').innerText = `${rm.used_gb}G / ${rm.total_gb}G`;
+            setArcGauge('ramArcFill', rm.percent);
+          }
+        }
+
+        if (data.disks && data.disks.root) {
+          const r = data.disks.root;
+          document.getElementById('localDriveCLabel').innerText = `C:/ (${(data.host || 'NVME').toUpperCase()})`;
+          document.getElementById('localDriveCVal').innerText = `${r.used_gb}G / ${r.total_gb}G (${r.percent}%)`;
+          document.getElementById('localDriveCBar').style.width = `${Math.min(100, r.percent)}%`;
+        }
+        if (data.disks && data.disks.home) {
+          const h = data.disks.home;
+          document.getElementById('localDriveDLabel').innerText = `D:/ (HOME VAULT)`;
+          document.getElementById('localDriveDVal').innerText = `${h.free_gb}G FREE`;
+          document.getElementById('localDriveDBar').style.width = `${Math.min(100, h.percent)}%`;
+        }
+        const dBtn = document.getElementById('desktopOverrideBtn');
+        if (dBtn && typeof data.desktop_mode === 'boolean') {
+          dBtn.innerText = data.desktop_mode ? '🖥️ EXIT DESKTOP SHELL' : '🖥️ DESKTOP SHELL';
+          dBtn.style.background = data.desktop_mode ? 'rgba(0,255,136,0.22)' : '';
+        }
+      } catch (e) {
+        localBridgeOnline = false;
+      }
+    }
+
+    async function loadLocalFiles(targetPath = '/home/jmrd', query = '') {
+      const container = document.getElementById('localFilesListContainer');
+      const pathEl = document.getElementById('localCurrentPathText');
+      let data = null;
+
+      try {
+        const url = `${LOCAL_BRIDGE_URL}/local/files?path=${encodeURIComponent(targetPath)}&query=${encodeURIComponent(query)}`;
+        const res = await fetch(url);
+        data = await res.json();
+        localBridgeOnline = true;
+      } catch (err) {
+        // Fallback to server /api/files if local desktop daemon isn't running on 127.0.0.1:7778
+        try {
+          const res = await fetch(`/api/files?path=${encodeURIComponent(targetPath)}&query=${encodeURIComponent(query)}`);
+          data = await res.json();
+        } catch (e2) {
+          if (container) container.innerHTML = `<div style="color:#ff4444; font-size:10px;">Unable to load files: ${e2.message}</div>`;
           return;
         }
-        data.memories.forEach(m => {
+      }
+
+      if (!data) return;
+      currentLocalDir = data.path || targetPath;
+      currentLocalParent = data.parent || '/home';
+      if (pathEl) pathEl.innerText = currentLocalDir;
+
+      const items = data.items || [];
+      if (items.length === 0) {
+        container.innerHTML = `<div style="color:#888; font-size:10px; padding:8px;">No matching files or folders in ${currentLocalDir}.</div>`;
+        return;
+      }
+
+      container.innerHTML = items.map((item, idx) => {
+        const numStr = String(idx + 1).padStart(2, '0');
+        const icon = getFileIcon(item.name, item.is_dir);
+        const meta = item.is_dir ? 'DIR' : formatFileSize(item.size);
+        const safePath = item.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const rowClick = item.is_dir
+          ? `loadLocalFiles('${safePath}')`
+          : `previewOrOpenLocalFile('${safePath}', '${item.name.replace(/'/g, "\\'")}')`;
+
+        return `
+          <div class="bcv-file-row" onclick="${rowClick}">
+            <span class="bcv-file-idx">${numStr}</span>
+            <span>${icon}</span>
+            <span class="bcv-file-name" title="${item.path}">${item.name}</span>
+            <span class="bcv-file-meta">${meta}</span>
+            <div style="display:flex; gap:3px;" onclick="event.stopPropagation();">
+              <button class="bcv-mini-act" onclick="openLocalItemNatively('${safePath}', 'default')" title="Open natively on your desktop">OPEN</button>
+              <button class="bcv-mini-act" onclick="openLocalItemNatively('${safePath}', 'code')" title="Open in VS Code">CODE</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function navigateLocalUp() {
+      playBeep(840, 'sine', 0.04);
+      loadLocalFiles(currentLocalParent || '/home/jmrd');
+    }
+
+    async function previewOrOpenLocalFile(filePath, fileName) {
+      playBeep(960, 'sine', 0.04);
+      const ext = (fileName.split('.').pop() || '').toLowerCase();
+      const textExts = ['py', 'js', 'ts', 'json', 'md', 'txt', 'sh', 'yaml', 'yml', 'toml', 'ini', 'conf', 'html', 'css', 'log', 'csv'];
+
+      if (!textExts.includes(ext)) {
+        // Non-text binary/media/PDF file -> open directly in native desktop app!
+        openLocalItemNatively(filePath, 'default');
+        return;
+      }
+
+      const modal = document.getElementById('localFilePreviewModal');
+      const titleEl = document.getElementById('previewFileName');
+      const contentEl = document.getElementById('previewFileContent');
+      const openBtn = document.getElementById('previewOpenNativeBtn');
+      const codeBtn = document.getElementById('previewOpenCodeBtn');
+
+      modal.style.display = 'block';
+      titleEl.innerText = `📄 ${fileName}`;
+      contentEl.innerText = 'Loading file preview...';
+      openBtn.onclick = () => openLocalItemNatively(filePath, 'default');
+      codeBtn.onclick = () => openLocalItemNatively(filePath, 'code');
+
+      try {
+        const base = localBridgeOnline ? `${LOCAL_BRIDGE_URL}/local/file-preview` : `/api/files/preview`;
+        const res = await fetch(`${base}?path=${encodeURIComponent(filePath)}`);
+        const data = await res.json();
+        contentEl.innerText = data.content || '(Empty file)';
+      } catch (e) {
+        contentEl.innerText = `Preview unavailable (${e.message}). Click OPEN APP to launch natively.`;
+      }
+    }
+
+    async function openLocalItemNatively(targetPath, opener = 'default') {
+      playBeep(1120, 'sine', 0.05);
+      const out = document.getElementById('alfredOutput');
+      try {
+        const res = await fetch(`${LOCAL_BRIDGE_URL}/local/open`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: targetPath, app: opener })
+        });
+        const data = await res.json();
+        if (out) out.innerHTML = `"Opening <strong style='color:var(--cyan);'>${targetPath.split('/').pop() || targetPath}</strong> on your desktop, Master Ramos."`;
+      } catch (e) {
+        alert('Local Desktop Bridge (alfred_daemon.py on 127.0.0.1:7778) is required to open local desktop apps.');
+      }
+    }
+
+    async function launchLocalDesktopApp(appKey, optionalPath = '') {
+      playBeep(1180, 'sine', 0.06);
+      const out = document.getElementById('alfredOutput');
+      try {
+        const res = await fetch(`${LOCAL_BRIDGE_URL}/local/launch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app: appKey, path: optionalPath })
+        });
+        const data = await res.json();
+        if (out && data.message) {
+          out.innerHTML = `"${data.message}" <span style="font-size:9px; color:var(--green);">[🖥️ LOCAL DESKTOP LAUNCH]</span>`;
+        }
+      } catch (e) {
+        if (optionalPath) {
+          switchDrawer('files');
+          loadLocalFiles(optionalPath);
+        }
+      }
+    }
+
+    async function toggleDesktopOverrideMode() {
+      playBeep(1240, 'sine', 0.06);
+      try {
+        const res = await fetch(`${LOCAL_BRIDGE_URL}/local/desktop-mode`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'toggle' })
+        });
+        const data = await res.json();
+        const dBtn = document.getElementById('desktopOverrideBtn');
+        if (dBtn) {
+          dBtn.innerText = data.desktop_mode ? '🖥️ EXIT DESKTOP SHELL' : '🖥️ DESKTOP SHELL';
+        }
+        document.getElementById('alfredOutput').innerHTML = data.desktop_mode
+          ? `"BCv1.2 Full-Screen Desktop Override engaged, Master Ramos. This HUD is now your active desktop."`
+          : `"Returned to floating companion mode, Master Ramos."`;
+        return;
+      } catch (e) {
+        // Browser fullscreen fallback if not using local bridge
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+    }
+
+    function executeTopUniversalSearch() {
+      const inp = document.getElementById('topUniversalSearch');
+      const q = inp ? inp.value.trim() : '';
+      if (!q) return;
+      playBeep(1020, 'sine', 0.05);
+      if (q.startsWith('/') || q.startsWith('~')) {
+        switchDrawer('files');
+        loadLocalFiles(q);
+      } else if (q.toLowerCase().startsWith('find ') || q.toLowerCase().startsWith('file ')) {
+        const term = q.replace(/^(?:find|file)\s+/i, '').trim();
+        switchDrawer('files');
+        document.getElementById('localFileFilterInput').value = term;
+        loadLocalFiles(currentLocalDir, term);
+      } else {
+        sendCommand(q);
+      }
+      inp.value = '';
+    }
+
+    // Initialize Local Desktop Files & Status on load
+    fetchLocalDesktopStatus();
+    loadLocalFiles('/home/jmrd');
+    setInterval(fetchLocalDesktopStatus, 2000);
+
+    // =====================================================
+    // REAL GITHUB REPOSITORY & WEB TEARDOWN
+    // =====================================================
+    async function runReverseEngineer() {
+      const target = document.getElementById('reUrlInput').value.trim();
+      if (!target) return alert('Please enter a GitHub repo (owner/repo) or URL.');
+      const out = document.getElementById('reReportOutput');
+      const metaBox = document.getElementById('reMetaBox');
+      out.innerText = `⚡ Connecting to target "${target}" — pulling git tree, languages, commits & source code...`;
+      if (metaBox) metaBox.style.display = 'none';
+      playBeep(880, 'sine', 0.05);
+
+      try {
+        const res = await fetch('/api/tools/reverse-engineer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: target })
+        });
+        const data = await res.json();
+
+        if (data.mode === 'github_repo' && metaBox) {
+          metaBox.style.display = 'block';
+          const langs = (data.languages || []).join(', ') || 'Python / JS';
+          const filesCount = (data.tree_sample || []).length;
+          metaBox.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <strong style="color:var(--green);">🐙 GITHUB REPO: ${data.repo}</strong>
+              <span style="color:var(--cyan);">⭐ ${data.stars || 0} | 🍴 ${data.forks || 0} | 📂 ${filesCount} files</span>
+            </div>
+            <div style="color:#ccc; font-size:9.5px;"><strong>Stack:</strong> ${langs}</div>
+          `;
+        } else if (metaBox && data.url) {
+          metaBox.style.display = 'block';
+          metaBox.innerHTML = `<strong style="color:var(--cyan);">🌐 WEB TARGET:</strong> ${data.url} (${data.scripts_count || 0} scripts)`;
+        }
+
+        out.innerText = data.report || JSON.stringify(data, null, 2);
+      } catch (e) {
+        out.innerText = 'Reverse engineering analysis failed: ' + e.message;
+      }
+    }
+
+    // =====================================================
+    // CALENDAR, BRAIN, MEMORY & VOICE CLONE HELPERS
+    // =====================================================
+    async function syncCalendarUrl() {
+      const url = document.getElementById('calUrlInput').value.trim();
+      const statusEl = document.getElementById('calSyncStatus');
+      statusEl.innerText = 'SYNCING...';
+      try {
+        const res = await fetch('/api/calendar/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        statusEl.innerText = `SYNCED (${data.count} EVENTS)`;
+        loadCalendarAgenda();
+      } catch (e) {
+        statusEl.innerText = 'SYNC ERROR';
+      }
+    }
+
+    async function loadCalendarAgenda() {
+      try {
+        const res = await fetch('/api/calendar');
+        const data = await res.json();
+        const listEl = document.getElementById('calendarList');
+        listEl.innerHTML = '';
+        if (data.config && data.config.ical_url) {
+          const inp = document.getElementById('calUrlInput');
+          if (inp && !inp.value) inp.value = data.config.ical_url;
+        }
+        if (!data.events || data.events.length === 0) {
+          listEl.innerHTML = '<div style="color:#888; font-size:10px;">No events scheduled.</div>';
+          return;
+        }
+        data.events.forEach(e => {
           const div = document.createElement('div');
-          div.className = 'memory-item';
-          div.innerHTML = '<div style="flex:1;"><strong>[' + (m.category || 'FACT') + ']</strong> ' + m.fact + '<br><span style="font-size:9px; color:rgba(0,229,255,0.5);">' + (m.timestamp || '') + '</span></div><button class="hud-btn" style="color:#ff4444; border-color:#ff4444; height:18px; padding:0 4px; font-size:9px;" onclick="deleteMemory(\'' + m.id + '\')">×</button>';
+          div.className = 'calendar-item';
+          const dateBadge = e.date && e.date !== 'Upcoming' ? '<span style="color:var(--cyan);">[' + e.date + '] </span>' : '';
+          div.innerHTML = '<strong>⏰ ' + dateBadge + e.time + ' - ' + e.title + '</strong><br><span style="color:var(--green);">' + (e.priority || 'Personal') + '</span> // ' + (e.location || 'Batcave');
           listEl.appendChild(div);
         });
-      } catch (e) {}
-    }
-
-    async function addMemoryFromUI() {
-      const fact = document.getElementById('newMemFact').value.trim();
-      if (!fact) return;
-      playBeep(800, 'sine', 0.04);
-      try {
-        await fetch('/api/memory/add', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fact: fact, category: 'Manual' })
-        });
-        document.getElementById('newMemFact').value = '';
-        loadMemories();
-      } catch (e) {}
-    }
-
-    async function deleteMemory(id) {
-      playBeep(500, 'sine', 0.04);
-      try {
-        await fetch('/api/memory/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: id })
-        });
-        loadMemories();
-      } catch (e) {}
-    }
-
-    async function purgeWorkingBuffer() {
-      playBeep(400, 'sine', 0.05);
-      try {
-        await fetch('/api/history/clear', { method: 'POST' });
-        alert('Conversation working buffer purged.');
       } catch (e) {}
     }
 
@@ -1393,88 +2700,132 @@
           div.onclick = async () => {
             const r = await fetch('/api/brain/file?name=' + encodeURIComponent(n.name));
             const noteData = await r.json();
-            alert('--- ' + noteData.name + ' ---\\n\\n' + noteData.content);
+            alert('--- ' + noteData.name + ' ---\n\n' + noteData.content);
           };
           listEl.appendChild(div);
         });
       } catch (e) {}
     }
-    loadBrainNotes();
 
-    async function loadCalendarAgenda() {
+    async function loadMemories() {
       try {
-        const res = await fetch('/api/calendar');
+        const res = await fetch('/api/memory');
         const data = await res.json();
-        const listEl = document.getElementById('calendarList');
+        const listEl = document.getElementById('memoryList');
         listEl.innerHTML = '';
-        
-        if (data.config && data.config.ical_url) {
-          const inp = document.getElementById('calUrlInput');
-          if (inp && !inp.value) inp.value = data.config.ical_url;
-          const st = document.getElementById('calSyncStatus');
-          if (st) st.innerText = 'SYNCED: ' + (data.config.source || 'PERSONAL CALENDAR');
-        }
-
-        if (!data.events || data.events.length === 0) {
-          listEl.innerHTML = '<div style="color:#888; font-size:10px;">No events scheduled. Paste your calendar feed URL above.</div>';
-          return;
-        }
-
-        data.events.forEach(e => {
+        (data.memories || []).forEach(m => {
           const div = document.createElement('div');
-          div.className = 'calendar-item';
-          const dateBadge = e.date && e.date !== 'Upcoming' ? '<span style="color:var(--cyan);">[' + e.date + '] </span>' : '';
-          const prioColor = e.priority === 'HIGH' || e.priority === 'CRITICAL' ? '#ff4444' : '#00ff88';
-          div.innerHTML = '<strong>⏰ ' + dateBadge + e.time + ' - ' + e.title + '</strong><br><span style="color:' + prioColor + ';">' + (e.priority || 'Personal') + '</span> // ' + (e.location || 'Tactical Site');
+          div.className = 'memory-item';
+          div.style.display = 'flex';
+          div.style.justifyContent = 'space-between';
+          div.innerHTML = `<div><strong>[${m.category || 'FACT'}]</strong> ${m.fact}</div><button class="hud-btn" style="color:#ff4444; border-color:#ff4444; height:18px; padding:0 5px; font-size:9px;" onclick="deleteMemory('${m.id}')">×</button>`;
           listEl.appendChild(div);
         });
-      } catch (e) {
-        console.error('Calendar load error:', e);
-      }
+      } catch (e) {}
     }
 
-    async function runReverseEngineer() {
-      const url = document.getElementById('reUrlInput').value.trim();
-      if (!url) return alert('Please enter a target URL.');
-      const out = document.getElementById('reReportOutput');
-      out.innerText = 'Analyzing and reverse engineering ' + url + '...';
-      playBeep(880, 'sine', 0.05);
+    async function addMemoryFromUI() {
+      const fact = document.getElementById('newMemFact').value.trim();
+      if (!fact) return;
+      await fetch('/api/memory/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fact, category: 'Manual' })
+      });
+      document.getElementById('newMemFact').value = '';
+      loadMemories();
+    }
 
+    async function deleteMemory(id) {
+      await fetch('/api/memory/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      loadMemories();
+    }
+
+    async function purgeWorkingBuffer() {
+      await fetch('/api/history/clear', { method: 'POST' });
+      alert('Conversation working buffer purged.');
+    }
+
+    async function executeVoiceClone() {
+      const name = document.getElementById('cloneName').value.trim();
+      const voiceId = document.getElementById('cloneId').value.trim();
+      const fileInput = document.getElementById('cloneFile');
+      const statusEl = document.getElementById('cloneStatus');
+      if (!fileInput.files || fileInput.files.length === 0) return alert('Select an audio/video file first.');
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      formData.append('name', name);
+      formData.append('voice_id', voiceId);
+      statusEl.innerHTML = '<span style="color:var(--cyan);">Cloning voice via MLX-Whisper & VoiceStudio...</span>';
       try {
-        const res = await fetch('/api/tools/reverse-engineer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
-        });
+        const res = await fetch('/api/voice/clone', { method: 'POST', body: formData });
         const data = await res.json();
-        out.innerText = data.report || JSON.stringify(data, null, 2);
+        if (data.success) {
+          statusEl.innerHTML = `<span style="color:var(--green);">✓ Cloned! ID: ${data.profile_id}</span>`;
+          loadConfigOptions();
+        }
       } catch (e) {
-        out.innerText = 'Reverse engineering analysis failed: ' + e.message;
+        statusEl.innerHTML = `<span style="color:#ff4444;">Error: ${e.message}</span>`;
       }
     }
 
+    // =====================================================
+    // SUB-SECOND CHAT DIRECTIVE PIPELINE
+    // =====================================================
     async function sendCommand(message) {
-      if (!message.trim()) return;
+      if (!message || !message.trim()) return;
       initAudio();
       playBeep(1200, 'sine', 0.05);
 
       const outputEl = document.getElementById('alfredOutput');
-      outputEl.innerText = 'Processing directive, Master Bruce...';
+      outputEl.innerText = 'Processing directive, Master Ramos...';
       document.getElementById('audioState').innerText = 'PROCESSING';
+      const t0 = performance.now();
 
       try {
         const activeModel = document.getElementById('modelSelect').value;
         const activeVoice = document.getElementById('voiceSelect').value;
+
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: message, model: activeModel, voice: activeVoice })
+          body: JSON.stringify({ message, model: activeModel, voice: activeVoice, skip_tts: true })
         });
         const data = await res.json();
-        outputEl.innerText = '"' + data.reply + '"';
+        const elapsedMs = Math.round(performance.now() - t0);
+        const hermesBadge = (data.hermes_actions && data.hermes_actions.length > 0)
+          ? `<span style="font-size:9px; color:#00ff88; background:rgba(0,255,136,0.15); border:1px solid #00ff88; padding:1px 5px; margin-left:6px; border-radius:2px;">🤖 ALFRED // HERMES AGENT EXECUTED</span>`
+          : '';
+        outputEl.innerHTML = `"${data.reply}" <span style="font-size:9px; color:var(--green); margin-left:6px;">[⚡ ${data.latency_ms || elapsedMs}ms]</span>${hermesBadge}`;
 
-        if (data.audio_url) {
-          playAlfredAudio(data.audio_url);
+        if (data.hermes_actions && data.hermes_actions.length > 0) {
+          const hOut = document.getElementById('hermesTaskOutput');
+          const last = data.hermes_actions[0];
+          if (hOut) hOut.innerHTML = `✓ <strong>[ALFRED // ${last.latency_ms || 0}ms]</strong>: <span style="color:#fff;">${last.output || last.reply}</span>`;
+        }
+
+        if (data.ha_actions && data.ha_actions.length > 0) {
+          fetchTelemetry();
+          if (document.getElementById('drawer-home').classList.contains('active')) loadSmartHomeDrawer();
+        }
+
+        if (data.reply) {
+          document.getElementById('audioState').innerText = 'SYNTHESIZING';
+          fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: data.reply, voice: activeVoice })
+          })
+          .then(r => r.json())
+          .then(ttsData => {
+            if (ttsData.audio_url) playAlfredAudio(ttsData.audio_url);
+            else document.getElementById('audioState').innerText = 'STANDBY';
+          })
+          .catch(() => { document.getElementById('audioState').innerText = 'STANDBY'; });
         }
       } catch (e) {
         outputEl.innerText = 'Communications link failed to respond, sir.';
@@ -1489,132 +2840,327 @@
     };
 
     document.getElementById('cmdInput').onkeydown = (e) => {
-      if (e.key === 'Enter') {
-        document.getElementById('sendBtn').click();
-      }
+      if (e.key === 'Enter') document.getElementById('sendBtn').click();
     };
 
     function triggerQuick(text) {
+      bargeInStopAudio();
       document.getElementById('cmdInput').value = text;
       document.getElementById('sendBtn').click();
     }
 
+    // =====================================================
+    // BARGE-IN AUDIO INTERRUPTION, BRIEFING & COMPUTER VISION
+    // =====================================================
+    function bargeInStopAudio() {
+      const audio = document.getElementById('alfredAudio');
+      if (audio && !audio.paused) {
+        audio.pause();
+        audio.currentTime = 0;
+      }
+      isAlfredSpeaking = false;
+      document.getElementById('audioState').innerText = 'STANDBY';
+      fetch('/api/audio/stop', { method: 'POST' }).catch(() => {});
+    }
+
+    async function triggerBriefing() {
+      initAudio();
+      bargeInStopAudio();
+      playBeep(1100, 'sine', 0.06);
+      const outputEl = document.getElementById('alfredOutput');
+      outputEl.innerText = '🌅 Compiling proactive JARVIS briefing (weather, Beszel fleet, climate, schedule)...';
+      document.getElementById('audioState').innerText = 'BRIEFING';
+      try {
+        const res = await fetch('/api/briefing?skip_tts=true');
+        const data = await res.json();
+        outputEl.innerHTML = `"${data.reply}" <span style="font-size:9px; color:var(--green); margin-left:6px;">[⚡ ${data.latency_ms || 0}ms]</span>`;
+        const activeVoice = document.getElementById('voiceSelect').value;
+        fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: data.reply, voice: activeVoice })
+        })
+        .then(r => r.json())
+        .then(t => { if (t.audio_url) playAlfredAudio(t.audio_url); });
+      } catch (e) {
+        outputEl.innerText = 'Briefing synthesis failed, Master Ramos.';
+      }
+    }
+
+    let visionStream = null;
+    async function toggleVisionCamera() {
+      const video = document.getElementById('visionVideo');
+      const btn = document.getElementById('visionCamBtn');
+      if (visionStream) {
+        visionStream.getTracks().forEach(t => t.stop());
+        visionStream = null;
+        video.style.display = 'none';
+        btn.innerText = '📷 START CAM';
+        return;
+      }
+      try {
+        visionStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        video.srcObject = visionStream;
+        video.style.display = 'block';
+        btn.innerText = '⏹️ STOP CAM';
+      } catch (e) {
+        alert('Camera access requires HTTPS or permission: ' + e.message);
+      }
+    }
+
+    async function captureAndAnalyzeVision(mode = 'screen') {
+      initAudio();
+      bargeInStopAudio();
+      playBeep(960, 'sine', 0.05);
+      const out = document.getElementById('visionOutput');
+      const alfredOut = document.getElementById('alfredOutput');
+      const prompt = document.getElementById('visionPromptInput').value.trim() || 'What am I looking at?';
+      out.innerText = `⚡ Analyzing ${mode === 'webcam' ? 'live webcam frame' : 'screen capture'} via OmniRoute multimodal vision...`;
+      alfredOut.innerText = 'Inspecting visual feed, Master Ramos...';
+
+      let imageB64 = null;
+      if (mode === 'webcam') {
+        const video = document.getElementById('visionVideo');
+        if (!visionStream || video.style.display === 'none') {
+          await toggleVisionCamera();
+          await new Promise(r => setTimeout(r, 500));
+        }
+        const cv = document.getElementById('visionCanvas');
+        cv.width = video.videoWidth || 640;
+        cv.height = video.videoHeight || 480;
+        cv.getContext('2d').drawImage(video, 0, 0, cv.width, cv.height);
+        imageB64 = cv.toDataURL('image/jpeg', 0.8);
+      }
+
+      try {
+        const res = await fetch('/api/vision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: imageB64, prompt, skip_tts: true })
+        });
+        const data = await res.json();
+        out.innerText = `✓ [${data.source || mode} // ${data.latency_ms || 0}ms]: ${data.reply}`;
+        alfredOut.innerHTML = `"${data.reply}" <span style="font-size:9px; color:var(--green);">[👁️ ${data.latency_ms || 0}ms]</span>`;
+        const activeVoice = document.getElementById('voiceSelect').value;
+        fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: data.reply, voice: activeVoice })
+        })
+        .then(r => r.json())
+        .then(t => { if (t.audio_url) playAlfredAudio(t.audio_url); });
+      } catch (e) {
+        out.innerText = 'Vision analysis error: ' + e.message;
+      }
+    }
+
+    // Global Hotkey: Alt+Space or Ctrl+Space triggers Barge-In + MLX-Whisper Mic
+    window.addEventListener('keydown', (e) => {
+      if ((e.altKey || e.ctrlKey) && e.code === 'Space') {
+        e.preventDefault();
+        bargeInStopAudio();
+        startMlxWhisperRecording();
+      } else if (e.key === 'Escape' && isAlfredSpeaking) {
+        bargeInStopAudio();
+      }
+    });
+
+    // =====================================================
+    // ULTRA-FAST MLX-WHISPER MICROPHONE WITH AUTO-SILENCE VAD
+    // =====================================================
     let isLiveComm = false;
     let isWakeActive = false;
     let isAlfredSpeaking = false;
     let wakeRecognizer = null;
+    let wakeStream = null;
+    let wakeLoopTimer = null;
+    let wakeAwaitingDirective = false;
+    let followUpTimer = null;
+    let followUpInterval = null;
+    let isFollowUpActive = false;
     const liveCommBtn = document.getElementById('liveCommBtn');
     const liveCommDot = document.getElementById('liveCommDot');
     const micBtn = document.getElementById('micBtn');
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let recognition = null;
-    let isRecognizing = false;
 
-    function initWakeWord() {
-      if (!SpeechRecognition) {
-        console.warn('SpeechRecognition not supported for wake word.');
-        return;
+    function closeFollowUpWindow() {
+      isFollowUpActive = false;
+      if (followUpTimer) { clearTimeout(followUpTimer); followUpTimer = null; }
+      if (followUpInterval) { clearInterval(followUpInterval); followUpInterval = null; }
+      const audioState = document.getElementById('audioState');
+      if (audioState && audioState.innerText.startsWith('CONVO')) {
+        audioState.innerText = 'STANDBY';
+        audioState.style.color = '';
       }
-      wakeRecognizer = new SpeechRecognition();
-      wakeRecognizer.continuous = true;
-      wakeRecognizer.interimResults = true;
-      wakeRecognizer.lang = 'en-US';
-
-      wakeRecognizer.onresult = (event) => {
-        if (isAlfredSpeaking) return;
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          transcript += event.results[i][0].transcript.toLowerCase();
-        }
-
-        const match = transcript.match(/(?:hey\s+)?alfred/i);
-        if (match) {
-          console.log('⚡ WAKE WORD DETECTED:', transcript);
-          playBeep(880, 'sine', 0.05);
-          setTimeout(() => playBeep(1320, 'sine', 0.08), 60);
-
-          const wakeDot = document.getElementById('wakeDot');
-          if (wakeDot) {
-            wakeDot.style.background = '#00ff88';
-            wakeDot.style.boxShadow = '0 0 12px #00ff88';
-          }
-          document.getElementById('audioState').innerText = 'WAKE: ALFRED';
-
-          const alfredEndPos = match.index + match[0].length;
-          let directive = transcript.slice(alfredEndPos).trim();
-          directive = directive.replace(/^[,.\s]+/, '');
-
-          if (directive.length > 2) {
-            try { wakeRecognizer.stop(); } catch(e) {}
-            document.getElementById('cmdInput').value = directive;
-            sendCommand();
-          } else {
-            document.getElementById('alfredOutput').innerText = '"At your service, Master Wayne. What is your directive?"';
-          }
-        }
-      };
-
-      wakeRecognizer.onerror = (event) => {
-        if (event.error !== 'no-speech') {
-          console.warn('Wake recognizer error:', event.error);
-        }
-      };
-
-      wakeRecognizer.onend = () => {
-        if (isWakeActive && !isAlfredSpeaking) {
-          setTimeout(() => {
-            if (isWakeActive && !isAlfredSpeaking) {
-              try { wakeRecognizer.start(); } catch(e) {}
-            }
-          }, 300);
-        }
-      };
     }
 
-    function toggleWakeWord() {
+    function startFollowUpWindow(seconds = 10) {
+      if (isLiveComm || isAlfredSpeaking) return;
+      closeFollowUpWindow();
+      isFollowUpActive = true;
+
+      let remaining = seconds;
+      const audioState = document.getElementById('audioState');
+      if (audioState) {
+        audioState.innerText = `CONVO OPEN (${remaining}s)`;
+        audioState.style.color = '#00ff88';
+      }
+      playBeep(880, 'sine', 0.04);
+
+      followUpInterval = setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          closeFollowUpWindow();
+          if (mediaRecorder && mediaRecorder.state === 'recording' && isFollowUpActive) {
+            mediaRecorder.stop();
+          }
+        } else if (audioState && !isAlfredSpeaking) {
+          audioState.innerText = `CONVO OPEN (${remaining}s)`;
+        }
+      }, 1000);
+
+      // Start automatic follow-up listening after subtle pause
+      setTimeout(() => {
+        if (!isAlfredSpeaking && isFollowUpActive) {
+          startMlxWhisperRecording(true /* isFollowUp */);
+        }
+      }, 350);
+
+      followUpTimer = setTimeout(() => {
+        closeFollowUpWindow();
+      }, seconds * 1000);
+    }
+
+    async function startMlxWhisperRecording(isFollowUp = false) {
       initAudio();
-      if (!SpeechRecognition) {
-        alert('Web Speech Recognition is not supported on this browser or requires HTTPS.');
+      if (!isFollowUp) bargeInStopAudio();
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
         return;
       }
-      if (!wakeRecognizer) initWakeWord();
 
-      isWakeActive = !isWakeActive;
-      const btn = document.getElementById('wakeBtn');
-      const dot = document.getElementById('wakeDot');
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
 
-      if (isWakeActive) {
-        btn.style.borderColor = 'var(--cyan)';
-        btn.style.background = 'rgba(0, 229, 255, 0.2)';
-        btn.style.boxShadow = '0 0 15px rgba(0, 229, 255, 0.4)';
-        dot.style.background = 'var(--cyan)';
-        dot.style.boxShadow = '0 0 8px var(--cyan)';
-        btn.innerHTML = '<span id="wakeDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--cyan); margin-right:5px; vertical-align:middle; box-shadow:0 0 8px var(--cyan);"></span> WAKE: LISTENING...';
-        try { wakeRecognizer.start(); } catch(e) {}
-        playBeep(1200, 'sine', 0.1);
-      } else {
-        btn.style.borderColor = 'rgba(0, 229, 255, 0.4)';
-        btn.style.background = 'rgba(0, 229, 255, 0.05)';
-        btn.style.boxShadow = 'none';
-        btn.innerHTML = '<span id="wakeDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:rgba(0,229,255,0.4); margin-right:5px; vertical-align:middle;"></span> WAKE: "ALFRED"';
-        try { wakeRecognizer.stop(); } catch(e) {}
+        // Setup WebAudio RMS Silence Detection (VAD) so recording stops automatically ~650ms after speech ends
+        const micCtx = new AudioContext();
+        const micSrc = micCtx.createMediaStreamSource(stream);
+        const micAnalyser = micCtx.createAnalyser();
+        micAnalyser.fftSize = 512;
+        micSrc.connect(micAnalyser);
+        const pcm = new Uint8Array(micAnalyser.fftSize);
+        let hasSpoken = false;
+        let silenceStart = 0;
+        const startTime = Date.now();
+        const maxDurationMs = isFollowUp ? 10000 : 7500;
+
+        const checkVad = () => {
+          if (!mediaRecorder || mediaRecorder.state !== 'recording') {
+            try { micCtx.close(); } catch (e) {}
+            return;
+          }
+          micAnalyser.getByteTimeDomainData(pcm);
+          let sum = 0;
+          for (let i = 0; i < pcm.length; i++) {
+            const v = (pcm[i] - 128) / 128;
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / pcm.length);
+          if (rms > 0.028) {
+            hasSpoken = true;
+            silenceStart = 0;
+          } else if (hasSpoken) {
+            if (!silenceStart) silenceStart = Date.now();
+            else if (Date.now() - silenceStart > 650) {
+              // User finished speaking! Stop immediately for ~160ms MLX-Whisper transcription
+              mediaRecorder.stop();
+              return;
+            }
+          }
+          if (Date.now() - startTime > maxDurationMs) {
+            mediaRecorder.stop();
+            return;
+          }
+          requestAnimationFrame(checkVad);
+        };
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          try { micCtx.close(); } catch (e) {}
+          micBtn.classList.remove('recording');
+          micBtn.innerText = 'MIC (MLX)';
+          if (hasSpoken) playBeep(660, 'sine', 0.06);
+
+          // If this was follow-up listening and user did not speak, just quietly close window
+          if (isFollowUp && !hasSpoken) {
+            closeFollowUpWindow();
+            return;
+          }
+
+          closeFollowUpWindow();
+          const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+          const fd = new FormData();
+          fd.append('file', audioBlob, 'command.wav');
+
+          const outputEl = document.getElementById('alfredOutput');
+          outputEl.innerText = '⚡ Transcribing via Apple Silicon MLX-Whisper...';
+          document.getElementById('audioState').innerText = 'MLX-STT';
+
+          try {
+            const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+            const data = await res.json();
+            let text = (data.text || '').trim();
+            const badge = document.getElementById('whisperBadge');
+            if (badge && data.latency_ms) {
+              badge.innerText = `⚡ MLX-WHISPER: ${data.latency_ms}ms (${data.engine || 'MLX'})`;
+            }
+            const wBadge = document.getElementById('whisperStatusBadge');
+            if (wBadge && data.latency_ms) {
+              wBadge.innerText = `${data.latency_ms}ms GPU`;
+            }
+
+            // Strip wake words if user said them out of habit
+            text = text.replace(/^(?:(?:hey|ok|yo|hi)\s+)?(?:computer|computa|commuter|puter|pewter|purer|putter|peter|tutor|tudor|ooter|cuter|alfred)[\s,.!:;-]*/i, '').trim();
+
+            if (text && text.length > 1) {
+              document.getElementById('cmdInput').value = text;
+              sendCommand(text);
+            } else {
+              if (!isFollowUp) {
+                outputEl.innerText = '"I did not catch any speech on the channel, Master Ramos."';
+                document.getElementById('audioState').innerText = 'STANDBY';
+              }
+              if (isLiveComm) setTimeout(() => { if (isLiveComm) startLiveListening(); }, 400);
+            }
+          } catch (err) {
+            outputEl.innerText = 'MLX-Whisper transcription failed, sir.';
+            document.getElementById('audioState').innerText = 'ERROR';
+          }
+        };
+
+        mediaRecorder.start();
+        requestAnimationFrame(checkVad);
+        if (!isFollowUp) playBeep(880, 'sine', 0.07);
+        micBtn.classList.add('recording');
+        micBtn.innerText = isFollowUp ? 'LISTENING (10s)...' : 'SPEAK NOW...';
+        if (!isFollowUp) document.getElementById('audioState').innerText = 'LISTENING';
+      } catch (err) {
+        if (!isFollowUp) alert('Microphone access requires HTTPS: ' + err.message);
       }
     }
+
+    micBtn.onclick = () => startMlxWhisperRecording();
 
     function startLiveListening() {
-      if (!isLiveComm) return;
-      initAudio();
-      if (recognition) {
-        if (!isRecognizing) {
-          try {
-            recognition.start();
-          } catch (e) {}
-        }
-      } else {
-        if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-          micBtn.click();
-        }
-      }
+      if (!isLiveComm || isAlfredSpeaking) return;
+      startMlxWhisperRecording();
     }
 
     if (liveCommBtn) {
@@ -1633,148 +3179,123 @@
           liveCommBtn.style.background = 'rgba(0, 229, 255, 0.05)';
           liveCommDot.style.background = 'rgba(0, 229, 255, 0.4)';
           liveCommDot.style.boxShadow = 'none';
-          playBeep(440, 'sine', 0.08);
-          stopSpeechRec();
+          if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
         }
       };
     }
 
-    if (SpeechRecognition) {
-      recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
+    // Wake Word Loop ("Computer" / "Puter" / "Hey Computer" / "Hey Puter") powered by ~160ms MLX-Whisper
+    function handleWakeTranscript(rawTranscript) {
+      if (!rawTranscript || isAlfredSpeaking) return false;
+      const transcript = rawTranscript.toLowerCase().trim();
+      if (!transcript) return false;
 
-      recognition.onstart = () => {
-        isRecognizing = true;
-        micBtn.classList.add('recording');
-        micBtn.innerText = 'LISTENING...';
-        document.getElementById('audioState').innerText = 'LISTENING';
-        playBeep(880, 'sine', 0.05);
-        document.getElementById('alfredOutput').innerText = 'Listening for directive...';
-      };
-
-      recognition.onresult = (event) => {
-        let interim = '';
-        let final = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript;
-          } else {
-            interim += event.results[i][0].transcript;
-          }
+      if (wakeAwaitingDirective) {
+        wakeAwaitingDirective = false;
+        const cleaned = transcript.replace(/^(?:(?:hey|ok|yo|hi)\s+)?(?:computer|computa|commuter|puter|pewter|purer|putter|peter|tutor|tudor|ooter|cuter|alfred)[\s,.!:;-]*/i, '').trim();
+        if (cleaned.length > 2) {
+          sendCommand(cleaned);
+          return true;
         }
-        const text = final || interim;
-        if (text) {
-          document.getElementById('cmdInput').value = text;
-          document.getElementById('alfredOutput').innerText = '[HEARD]: "' + text + '"';
-        }
-      };
-
-      recognition.onerror = (event) => {
-        console.warn('Speech recognition status:', event.error);
-        stopSpeechRec();
-      };
-
-      recognition.onend = () => {
-        stopSpeechRec();
-        const text = document.getElementById('cmdInput').value.trim();
-        if (text && text !== 'Listening for directive...') {
-          document.getElementById('cmdInput').value = '';
-          sendCommand(text);
-        } else if (isLiveComm) {
-          setTimeout(() => {
-            if (isLiveComm && document.getElementById('audioState').innerText === 'STANDBY') {
-              startLiveListening();
-            }
-          }, 400);
-        }
-      };
-    }
-
-    function stopSpeechRec() {
-      if (isRecognizing && recognition) {
-        try { recognition.stop(); } catch (e) {}
       }
-      isRecognizing = false;
-      micBtn.classList.remove('recording');
-      micBtn.innerText = 'MIC';
+
+      const match = transcript.match(/\b(?:(?:hey|ok|yo|hi)\s+)?(?:computer|computa|commuter|puter|pewter|purer|putter|peter|tutor|tudor|ooter|cuter|alfred)\b/i);
+      if (match) {
+        playBeep(880, 'sine', 0.05);
+        setTimeout(() => playBeep(1320, 'sine', 0.08), 60);
+        const wakeEndPos = match.index + match[0].length;
+        let directive = transcript.slice(wakeEndPos).trim().replace(/^[,.\s!:;-]+/, '');
+        if (directive.length > 2) {
+          sendCommand(directive);
+        } else {
+          wakeAwaitingDirective = true;
+          document.getElementById('alfredOutput').innerText = '"\'Puter online, Master Remmy. What is your directive?"';
+        }
+        return true;
+      }
+      return false;
     }
 
-    micBtn.onclick = async () => {
-      initAudio();
+    async function startWhisperWakeLoop() {
+      try {
+        if (!wakeStream) {
+          wakeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+      } catch (err) {
+        alert('Microphone permission denied: ' + err.message);
+        isWakeActive = false;
+        return;
+      }
 
-      // 1. Try real-time streaming Web Speech API (0ms latency!)
-      if (recognition) {
-        if (!isRecognizing) {
-          try {
-            recognition.start();
-            return;
-          } catch (e) {
-            console.warn('Web Speech fallback to MediaRecorder', e);
-          }
-        } else {
-          stopSpeechRec();
+      const recordChunk = () => {
+        if (!isWakeActive) return;
+        if (isAlfredSpeaking) {
+          wakeLoopTimer = setTimeout(recordChunk, 500);
           return;
         }
-      }
-
-      // 2. Fallback to MediaRecorder + Faster-Whisper
-      if (!mediaRecorder || mediaRecorder.state === 'inactive') {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          mediaRecorder = new MediaRecorder(stream);
-          audioChunks = [];
-
-          mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) audioChunks.push(e.data);
-          };
-
-          mediaRecorder.onstop = async () => {
-            micBtn.classList.remove('recording');
-            micBtn.innerText = 'MIC';
-            playBeep(440, 'sine', 0.1);
-
-            const activeVoice = document.getElementById('voiceSelect').value;
-            const activeModel = document.getElementById('modelSelect').value;
-
-            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-            const formData = new FormData();
-            formData.append('file', audioBlob, 'command.wav');
-            formData.append('voice', activeVoice);
-            formData.append('model', activeModel);
-
-            const outputEl = document.getElementById('alfredOutput');
-            outputEl.innerText = 'Transcribing audio via Faster-Whisper...';
-            document.getElementById('audioState').innerText = 'TRANSCRIBING';
-
-            try {
-              const res = await fetch('/api/listen', { method: 'POST', body: formData });
-              const data = await res.json();
-              document.getElementById('cmdInput').value = data.transcription || '';
-              outputEl.innerText = '"' + (data.reply || '') + '"';
-
-              if (data.audio_url) {
-                playAlfredAudio(data.audio_url);
-              }
-            } catch (err) {
-              outputEl.innerText = 'Failed to transcribe voice stream, sir.';
-              document.getElementById('audioState').innerText = 'ERROR';
+          const recorder = new MediaRecorder(wakeStream);
+          const chunks = [];
+          recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+          recorder.onstop = async () => {
+            if (!isWakeActive || isAlfredSpeaking || chunks.length === 0) {
+              if (isWakeActive) wakeLoopTimer = setTimeout(recordChunk, 250);
+              return;
             }
+            const blob = new Blob(chunks, { type: 'audio/wav' });
+            const fd = new FormData();
+            fd.append('file', blob, 'wake_chunk.wav');
+            try {
+              const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+              const data = await res.json();
+              if (data.text) handleWakeTranscript(data.text);
+            } catch (e) {}
+            if (isWakeActive) wakeLoopTimer = setTimeout(recordChunk, 180);
           };
-
-          mediaRecorder.start();
-          playBeep(880, 'sine', 0.1);
-          micBtn.classList.add('recording');
-          micBtn.innerText = 'LISTENING...';
-          document.getElementById('audioState').innerText = 'LISTENING';
-        } catch (err) {
-          alert('Microphone access denied: ' + err.message);
+          recorder.start();
+          setTimeout(() => {
+            if (recorder.state === 'recording') {
+              try { recorder.stop(); } catch (e) {}
+            }
+          }, 2200);
+        } catch (e) {
+          if (isWakeActive) wakeLoopTimer = setTimeout(recordChunk, 800);
         }
-      } else if (mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
+      };
+      recordChunk();
+    }
+
+    function stopWhisperWakeLoop() {
+      if (wakeLoopTimer) clearTimeout(wakeLoopTimer);
+      if (wakeStream) {
+        wakeStream.getTracks().forEach(t => t.stop());
+        wakeStream = null;
       }
-    };
+    }
+
+    function toggleWakeWord() {
+      initAudio();
+      isWakeActive = !isWakeActive;
+      const btn = document.getElementById('wakeBtn');
+      if (isWakeActive) {
+        btn.style.borderColor = 'var(--cyan)';
+        btn.style.background = 'rgba(0, 229, 255, 0.2)';
+        btn.innerHTML = '<span id="wakeDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--cyan); box-shadow:0 0 8px var(--cyan);"></span> WAKE: LISTENING';
+        startWhisperWakeLoop();
+      } else {
+        wakeAwaitingDirective = false;
+        btn.style.borderColor = 'rgba(0, 229, 255, 0.4)';
+        btn.style.background = 'rgba(0, 229, 255, 0.05)';
+        btn.innerHTML = '<span id="wakeDot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:rgba(0,229,255,0.4);"></span> WAKE: "COMPUTER / PUTER"';
+        stopWhisperWakeLoop();
+      }
+    }
+    // Progressive Web App Service Worker Registration for All Devices
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
   </script>
 </body>
 </html>

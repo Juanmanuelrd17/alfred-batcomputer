@@ -20,11 +20,17 @@ import asyncio
 import uuid
 import re
 import subprocess
+import imaplib
+import email
+from email.header import decode_header
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import urllib.request
 import urllib.parse
 import requests
+
+# Ensure Homebrew and Hermes binaries (ffmpeg, node, hermes, etc.) are on PATH for mlx_whisper & subprocesses
+os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/Users/jmrd/.local/bin:/Users/jmrd/.hermes/bin:" + os.environ.get("PATH", "")
 
 from fastapi import FastAPI, UploadFile, File, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
@@ -42,6 +48,7 @@ CALENDAR_CONFIG_FILE = BASE_DIR / "calendar_config.json"
 CUSTOM_VOICES_FILE = BASE_DIR / "custom_voices.json"
 MEMORY_FILE = BASE_DIR / "memory.json"
 HISTORY_FILE = BASE_DIR / "chat_history.json"
+TOOLS_CONFIG_FILE = BASE_DIR / "tools_config.json"
 
 AUDIO_CACHE.mkdir(exist_ok=True)
 BRAIN_DIR.mkdir(exist_ok=True)
@@ -51,24 +58,31 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 START_TIME = time.time()
 
 # Configurable State
-CURRENT_MODEL = "antigravity/gemini-3-flash"
-CURRENT_VOICE = "michael_caine"  # Default: Michael Caine (Dark Knight Alfred)
+CURRENT_MODEL = "no-think/kr/claude-haiku-4.5"
+CURRENT_VOICE = "daniel"  # Default: Daniel (Ultra-fast 0.3s macOS British Butler)
+
+# Persistent HTTP session for connection pooling (saves TCP handshake latency to ZimaOS & HA)
+HTTP_SESSION = requests.Session()
+_HA_CACHE: Dict[str, Any] = {"data": None, "ts": 0.0}
 
 # Home Assistant & OmniRoute Config
-HASS_TOKEN = ""
-HASS_URL = "http://100.93.110.2:8123"
-OMNIROUTE_URL = "http://zimaos:20128/v1"
-OMNIROUTE_KEY = ""
+HASS_TOKEN = os.environ.get("HASS_TOKEN", "")
+HASS_URL = os.environ.get("HASS_URL", "http://100.93.110.2:8123")
+OMNIROUTE_URL = os.environ.get("OMNIROUTE_URL", "http://zimaos:20128/v1")
+OMNIROUTE_KEY = os.environ.get("OMNIROUTE_KEY", "")
 
-env_file = Path("/Users/jmrd/.hermes/.env")
-if env_file.exists():
-    for line in env_file.read_text().splitlines():
-        if line.startswith("HASS_TOKEN="):
-            HASS_TOKEN = line.split("=", 1)[1].strip()
-        elif line.startswith("HASS_URL="):
-            HASS_URL = line.split("=", 1)[1].strip().rstrip("/")
-        elif line.startswith("HERMES_CUSTOM_ZIMAOS_20128_API_KEY="):
-            OMNIROUTE_KEY = line.split("=", 1)[1].strip()
+for env_candidate in [BASE_DIR / ".env", Path.home() / ".hermes" / ".env", Path("/Users/jmrd/.hermes/.env")]:
+    if env_candidate.exists():
+        for line in env_candidate.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith("HASS_TOKEN=") and not HASS_TOKEN:
+                HASS_TOKEN = line.split("=", 1)[1].strip()
+            elif line.startswith("HASS_URL="):
+                HASS_URL = line.split("=", 1)[1].strip().rstrip("/")
+            elif line.startswith("HERMES_CUSTOM_ZIMAOS_20128_API_KEY=") and not OMNIROUTE_KEY:
+                OMNIROUTE_KEY = line.split("=", 1)[1].strip()
+            elif line.startswith("OMNIROUTE_KEY=") and not OMNIROUTE_KEY:
+                OMNIROUTE_KEY = line.split("=", 1)[1].strip()
+        break
 
 app = FastAPI(title="Batcomputer HUD - Jarvis Replication Core")
 
@@ -132,8 +146,23 @@ def save_custom_voice(voice_id: str, profile_id: str, name: str, engine: str = "
     voices[voice_id] = {"id": voice_id, "profile_id": profile_id, "name": name, "engine": engine}
     CUSTOM_VOICES_FILE.write_text(json.dumps(voices, indent=2), encoding="utf-8")
 
+def cleanup_audio_cache(max_files: int = 30):
+    """Keep audio_cache bounded by removing oldest generated mp3/wav/upload files."""
+    try:
+        files = sorted(
+            [p for p in AUDIO_CACHE.iterdir() if p.is_file() and p.name != ".gitkeep" and not p.name.startswith("ref_")],
+            key=lambda p: p.stat().st_mtime,
+            reverse=True
+        )
+        for old_file in files[max_files:]:
+            old_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def synthesize_voice(text: str, voice: Optional[str] = None) -> Optional[str]:
     """Generate audio using selected voice engine (Daniel, VoiceStudio, or Cloned Michael Caine)"""
+    cleanup_audio_cache()
     selected_voice = voice or CURRENT_VOICE
     filename = f"alfred_{uuid.uuid4().hex[:8]}.mp3"
     filepath = AUDIO_CACHE / filename
@@ -181,22 +210,21 @@ def synthesize_voice(text: str, voice: Optional[str] = None) -> Optional[str]:
         except Exception:
             pass
 
-    # 2. If native macOS neural butler voice
+    # 2. If native macOS neural butler voice (Direct 22kHz WAV output — zero FFmpeg overhead, ~300ms)
     if selected_voice in ["daniel", "oliver", "samantha"]:
         voice_map = {"daniel": "Daniel", "oliver": "Oliver", "samantha": "Samantha"}
         system_voice = voice_map.get(selected_voice, "Daniel")
-        tmp_aiff = AUDIO_CACHE / f"tmp_{uuid.uuid4().hex[:8]}.aiff"
+        wav_filename = f"alfred_{uuid.uuid4().hex[:8]}.wav"
+        wav_filepath = AUDIO_CACHE / wav_filename
         try:
-            subprocess.run(["say", "-v", system_voice, "-r", "195", "-o", str(tmp_aiff), clean_text], check=True, timeout=10)
-            subprocess.run(["ffmpeg", "-y", "-i", str(tmp_aiff), "-codec:a", "libmp3lame", "-qscale:a", "2", str(filepath)],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=5)
-            if tmp_aiff.exists():
-                tmp_aiff.unlink()
-            return f"/api/audio/{filename}"
+            subprocess.run(
+                ["say", "-v", system_voice, "-r", "200", "--data-format=LEI16@22050", "-o", str(wav_filepath), clean_text],
+                check=True, timeout=8
+            )
+            return f"/api/audio/{wav_filename}"
         except Exception as e:
             print(f"macOS say synthesis error: {e}", file=sys.stderr)
-            if tmp_aiff.exists():
-                tmp_aiff.unlink()
+            wav_filepath.unlink(missing_ok=True)
 
     # VoiceStudio Kokoro Fallback / Selection
     payload = json.dumps({
@@ -231,26 +259,61 @@ def synthesize_voice(text: str, voice: Optional[str] = None) -> Optional[str]:
             return None
 
 
+# ==========================================
+# ULTRA-FAST APPLE SILICON METAL WHISPER STT
+# ==========================================
+WHISPER_INITIAL_PROMPT = (
+    "Computer, Hey Computer, Puter, Hey Puter, Alfred, Hermes, Master Ramos, Master Juan, Master Remmy, "
+    "Batcomputer, living room, bedroom, lights, dimmer, Sony BRAVIA TV, Sonos, thermostat, garage doors, "
+    "outdoor lock, Anycubic Kobra X, 3D printer, Beszel, ZimaOS, OptiPlex, GitHub repo, teardown, schedule, calendar, email."
+)
+_MLX_WHISPER_READY = False
+WHISPER_MLX_MODEL = "mlx-community/whisper-base.en-mlx"
+try:
+    import mlx_whisper
+    _MLX_WHISPER_READY = True
+except Exception:
+    mlx_whisper = None
+
+
 def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> str:
-    """Send recorded speech to VoiceStudio fast MLX/Faster-Whisper STT"""
-    try:
-        res = requests.post(
-            f"{VOICESTUDIO_URL}/transcribe",
-            files={"audio": (filename, audio_bytes, "audio/wav")},
-            data={"mode": "fast"},
-            timeout=10
-        )
-        if res.status_code == 200:
-            return res.json().get("text", "").strip()
-    except Exception as e:
-        print(f"VoiceStudio /transcribe error: {e}", file=sys.stderr)
+    """Transcribe speech in ~160ms using in-process Apple Silicon Metal GPU mlx_whisper (with VoiceStudio fallback)"""
+    if not audio_bytes or len(audio_bytes) < 400:
+        return ""
+
+    if _MLX_WHISPER_READY and mlx_whisper is not None:
+        tmp_audio = AUDIO_CACHE / f"stt_{uuid.uuid4().hex[:8]}_{Path(filename).name}"
+        try:
+            tmp_audio.write_bytes(audio_bytes)
+            res = mlx_whisper.transcribe(
+                str(tmp_audio),
+                path_or_hf_repo=WHISPER_MLX_MODEL,
+                language="en",
+                initial_prompt=WHISPER_INITIAL_PROMPT,
+                condition_on_previous_text=False
+            )
+            tmp_audio.unlink(missing_ok=True)
+            text = (res.get("text") or "").strip()
+            # Filter common Whisper silence hallucinations
+            if text.lower() in ("you", "thank you.", "thanks for watching!", ".", ""):
+                return ""
+            # Normalize phonetic spellings of "Puter" and "Computer" (both standalone and with "Hey")
+            text = re.sub(r'\b(?:hey|ok|yo|hi)\s+(?:pewter|purer|putter|peter|tutor|tudor|ooter|cuter|scooter)\b', 'Hey Puter', text, flags=re.I)
+            text = re.sub(r'\b(?:hey|ok|yo|hi)\s+(?:commuter|computa)\b', 'Hey Computer', text, flags=re.I)
+            text = re.sub(r'^\s*(?:pewter|purer|putter|peter|tutor|tudor|ooter|cuter|scooter)\b', 'Puter', text, flags=re.I)
+            text = re.sub(r'^\s*(?:commuter|computa)\b', 'Computer', text, flags=re.I)
+            text = re.sub(r'\b(?:pewter|purer|putter)\b', 'Puter', text, flags=re.I)
+            return text
+        except Exception as e:
+            print(f"mlx_whisper error: {e}", file=sys.stderr)
+            tmp_audio.unlink(missing_ok=True)
 
     try:
-        res = requests.post(
+        res = HTTP_SESSION.post(
             f"{VOICESTUDIO_URL}/v1/audio/transcriptions",
             files={"file": (filename, audio_bytes, "audio/wav")},
             data={"model": "Systran/faster-whisper-base"},
-            timeout=12
+            timeout=10
         )
         if res.status_code == 200:
             return res.json().get("text", "").strip()
@@ -266,32 +329,39 @@ def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> str:
 
 def is_omniroute_model(model_name: str) -> bool:
     m = model_name.lower()
-    return "antigravity" in m or m.startswith("omniroute") or "claude" in m or "gemini" in m or "gpt" in m
+    return any(k in m for k in ["antigravity", "omniroute", "claude", "gemini", "gpt", "kr/", "kiro/", "no-think/", "minimax", "deepseek"])
 
 
-def query_omniroute(messages: List[Dict[str, str]], model: str = "antigravity/gemini-3-flash") -> str:
-    """Query OmniRoute proxy (Antigravity frontier models) with high-speed parameters"""
-    payload = json.dumps({
-        "model": model,
-        "messages": messages,
-        "temperature": 0.5,
-        "max_tokens": 100
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        f"{OMNIROUTE_URL}/chat/completions",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {OMNIROUTE_KEY}",
-            "Content-Type": "application/json"
-        }
-    )
+def query_omniroute(messages: List[Dict[str, str]], model: str = "antigravity/gemini-3.1-flash-lite") -> str:
+    """Query OmniRoute proxy (Antigravity frontier models) with persistent keep-alive pooling"""
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data["choices"][0]["message"]["content"].strip()
+        resp = HTTP_SESSION.post(
+            f"{OMNIROUTE_URL}/chat/completions",
+            json={
+                "model": model,
+                "messages": messages,
+                "temperature": 0.3,
+                "max_tokens": 180
+            },
+            headers={"Authorization": f"Bearer {OMNIROUTE_KEY}"},
+            timeout=12
+        )
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"].strip()
+        # Fast automatic fallback to gemini-3-flash if primary model returns non-200
+        if model != "antigravity/gemini-3-flash":
+            resp2 = HTTP_SESSION.post(
+                f"{OMNIROUTE_URL}/chat/completions",
+                json={"model": "antigravity/gemini-3-flash", "messages": messages, "temperature": 0.3, "max_tokens": 180},
+                headers={"Authorization": f"Bearer {OMNIROUTE_KEY}"},
+                timeout=12
+            )
+            if resp2.status_code == 200:
+                return resp2.json()["choices"][0]["message"]["content"].strip()
+        return f"OmniRoute returned status {resp.status_code}, Master Ramos."
     except Exception as e:
         print(f"OmniRoute inference error: {e}", file=sys.stderr)
-        return "I apologize, Master Wayne. The OmniRoute Antigravity neural link experienced an uplink interruption."
+        return "I apologize, Master Ramos. The OmniRoute Antigravity neural link experienced an uplink interruption."
 
 
 def query_ollama(messages: List[Dict[str, str]], model: Optional[str] = None) -> str:
@@ -318,7 +388,7 @@ def query_ollama(messages: List[Dict[str, str]], model: Optional[str] = None) ->
             return data.get("message", {}).get("content", "").strip()
     except Exception as e:
         print(f"Ollama inference error: {e}", file=sys.stderr)
-        return "I apologize, Master Wayne. The local neural brain experienced a momentary pipeline hiccup."
+        return "I apologize, Master Ramos. The local neural brain experienced a momentary pipeline hiccup."
 
 
 def query_brain(messages: List[Dict[str, str]], model: Optional[str] = None) -> str:
@@ -429,24 +499,30 @@ def call_hass_api(endpoint: str, method: str = "GET", data: Optional[dict] = Non
         "Authorization": f"Bearer {HASS_TOKEN}",
         "Content-Type": "application/json"
     }
-    payload = json.dumps(data).encode("utf-8") if data else None
-    req = urllib.request.Request(url, data=payload, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        if method.upper() == "POST":
+            _HA_CACHE["ts"] = 0.0  # Invalidate state cache on any device mutation
+            resp = HTTP_SESSION.post(url, json=data or {}, headers=headers, timeout=4)
+        else:
+            resp = HTTP_SESSION.get(url, headers=headers, timeout=4)
+        if resp.status_code in (200, 201):
+            return resp.json()
+        return None
     except Exception as e:
         print(f"HASS API Error ({endpoint}): {e}")
         return None
 
 
-def get_ha_devices_summary() -> Dict[str, Any]:
+def get_ha_devices_summary(use_cache: bool = True) -> Dict[str, Any]:
+    now = time.time()
+    if use_cache and _HA_CACHE["data"] is not None and (now - _HA_CACHE["ts"]) < 3.0:
+        return _HA_CACHE["data"]
     states = call_hass_api("states") or []
     by_id = {s["entity_id"]: s for s in states}
 
     # Primary TV: BRAVIA XR-85X90L, with fallback to legacy living_room
     bravia = by_id.get("media_player.tv_sala_2", {})
     tv_lr = by_id.get("media_player.tv_living_room", {})
-    b_attrs = bravia.get("attributes", {})
 
     active_tv = bravia if bravia else tv_lr
     active_attrs = active_tv.get("attributes", {})
@@ -455,24 +531,59 @@ def get_ha_devices_summary() -> Dict[str, Any]:
     sonos = by_id.get("media_player.sonos_home_theater", {})
     s_attrs = sonos.get("attributes", {})
 
-    # Thermostat
+    # Thermostat & Sensors
     thermo = by_id.get("climate.jm_servers_thermostat", {})
     t_attrs = thermo.get("attributes", {})
     c_temp = t_attrs.get("current_temperature")
-    f_temp = round(c_temp * 9/5 + 32, 1) if c_temp else None
+    sensor_temp = by_id.get("sensor.jm_servers_thermostat_temperature", {}).get("state")
+    sensor_hum = by_id.get("sensor.jm_servers_thermostat_humidity", {}).get("state")
+    try:
+        f_temp = round(float(sensor_temp), 1) if sensor_temp not in (None, "unavailable", "unknown") else (round(c_temp * 9/5 + 32, 1) if c_temp else 72.5)
+    except Exception:
+        f_temp = 72.5
+    try:
+        humidity_val = round(float(sensor_hum), 1) if sensor_hum not in (None, "unavailable", "unknown") else t_attrs.get("current_humidity", 60)
+    except Exception:
+        humidity_val = t_attrs.get("current_humidity", 60)
 
     # Lights
     jm_light = by_id.get("light.dimmer_cuarto_jm", {})
     sala_light = by_id.get("light.luz_sala", {})
     ht_light = by_id.get("light.home_theater", {})
     mau_light = by_id.get("light.luz_cuarto_mau", {})
+    papas_light = by_id.get("light.luz_papas", {})
+    buro_mau_light = by_id.get("light.buro_cuarto_mau", {})
+    anybuddy_light = by_id.get("light.anybuddy_display_backlight", {})
 
-    # Fans
+    # Fans & Switches
     mau_fan = by_id.get("switch.ventilador_mau", {})
     papas_fan = by_id.get("switch.ventilador_papas", {})
     jm_switch = by_id.get("switch.switch_cuarto_jm", {})
+    ext_switch = by_id.get("switch.apagador_externo", {})
+    thermo_fan = by_id.get("fan.jm_servers_thermostat", {})
 
-    return {
+    # Security: Garages & Locks
+    garage_1 = by_id.get("cover.garage_1", {})
+    garage_2 = by_id.get("cover.garage_2", {})
+    outdoor_lock = by_id.get("lock.outdoor_lock_lock", {})
+
+    # 3D Printer: Anycubic Kobra X
+    kobra_online = by_id.get("binary_sensor.anycubic_kobra_x_printer_online", {}).get("state", "off")
+    kobra_state = by_id.get("sensor.anycubic_kobra_x_job_state", {}).get("state", "idle")
+    kobra_progress = by_id.get("sensor.anycubic_kobra_x_job_progress", {}).get("state", "0")
+    kobra_job = by_id.get("sensor.anycubic_kobra_x_job_name", {}).get("state", "None")
+    kobra_nozzle = by_id.get("sensor.anycubic_kobra_x_nozzle_temperature", {}).get("state", "0")
+    kobra_bed = by_id.get("sensor.anycubic_kobra_x_hotbed_temperature", {}).get("state", "0")
+    kobra_layer = by_id.get("sensor.anycubic_kobra_x_job_current_layer", {}).get("state", "0")
+    kobra_total_layers = by_id.get("sensor.anycubic_kobra_x_job_total_layers", {}).get("state", "0")
+    kobra_rem = by_id.get("sensor.anycubic_kobra_x_job_time_remaining", {}).get("state", "0")
+
+    # HP Printer & Mauricio iPhone
+    hp_black = by_id.get("sensor.hp_envy_4520_series_black_ink", {}).get("state", "unknown")
+    hp_color = by_id.get("sensor.hp_envy_4520_series_tri_color_ink", {}).get("state", "unknown")
+    mau_batt = by_id.get("sensor.iphone_mauricio_battery_level", {}).get("state", "unknown")
+
+    summary = {
         "tv": {
             "entity_id": active_tv.get("entity_id", "media_player.tv_sala_2"),
             "name": active_attrs.get("friendly_name", "Sony BRAVIA 85\" TV"),
@@ -484,29 +595,109 @@ def get_ha_devices_summary() -> Dict[str, Any]:
             "entity_id": "media_player.sonos_home_theater",
             "name": s_attrs.get("friendly_name", "Sonos Home Theater"),
             "state": sonos.get("state", "off"),
-            "volume": round((s_attrs.get("volume_level") or 0.3) * 100)
+            "volume": round((s_attrs.get("volume_level") or 0.3) * 100),
+            "night_sound": by_id.get("switch.sonos_home_theater_night_sound", {}).get("state", "off"),
+            "speech_enhancement": by_id.get("switch.sonos_home_theater_speech_enhancement", {}).get("state", "off")
         },
         "thermostat": {
             "entity_id": "climate.jm_servers_thermostat",
             "name": t_attrs.get("friendly_name", "Home Thermostat"),
             "temp_f": f_temp,
             "temp_c": c_temp,
-            "humidity": t_attrs.get("current_humidity", 62),
+            "humidity": humidity_val,
             "mode": thermo.get("state", "heat_cool"),
-            "action": t_attrs.get("hvac_action", "cooling")
+            "action": t_attrs.get("hvac_action", "cooling"),
+            "fan_state": thermo_fan.get("state", "off")
         },
         "lights": [
-            {"entity_id": "light.dimmer_cuarto_jm", "name": "JM Bedroom Dimmer", "state": jm_light.get("state", "off")},
-            {"entity_id": "light.luz_sala", "name": "Living Room Light", "state": sala_light.get("state", "off")},
+            {"entity_id": "light.dimmer_cuarto_jm", "name": "JM Bedroom Dimmer", "state": jm_light.get("state", "off"), "brightness": jm_light.get("attributes", {}).get("brightness")},
+            {"entity_id": "light.luz_sala", "name": "Living Room Light (Sala)", "state": sala_light.get("state", "off")},
             {"entity_id": "light.home_theater", "name": "Home Theater Light", "state": ht_light.get("state", "off")},
-            {"entity_id": "light.luz_cuarto_mau", "name": "Mau Room Light", "state": mau_light.get("state", "off")}
+            {"entity_id": "light.luz_cuarto_mau", "name": "Mau Room Light", "state": mau_light.get("state", "off")},
+            {"entity_id": "light.buro_cuarto_mau", "name": "Mau Nightstand (Buró)", "state": buro_mau_light.get("state", "off")},
+            {"entity_id": "light.luz_papas", "name": "Parents Room Light (Papás)", "state": papas_light.get("state", "off")},
+            {"entity_id": "light.anybuddy_display_backlight", "name": "AnyBuddy Display Backlight", "state": anybuddy_light.get("state", "off")}
         ],
         "switches": [
             {"entity_id": "switch.ventilador_mau", "name": "Mau Fan", "state": mau_fan.get("state", "off")},
             {"entity_id": "switch.ventilador_papas", "name": "Parents Fan", "state": papas_fan.get("state", "off")},
-            {"entity_id": "switch.switch_cuarto_jm", "name": "JM Room Switch", "state": jm_switch.get("state", "off")}
-        ]
+            {"entity_id": "switch.switch_cuarto_jm", "name": "JM Room Switch", "state": jm_switch.get("state", "off")},
+            {"entity_id": "switch.apagador_externo", "name": "External Switch (Apagador Externo)", "state": ext_switch.get("state", "off")}
+        ],
+        "security": {
+            "garage_1": {"entity_id": "cover.garage_1", "name": "Garage Door 1", "state": garage_1.get("state", "closed")},
+            "garage_2": {"entity_id": "cover.garage_2", "name": "Garage Door 2", "state": garage_2.get("state", "closed")},
+            "outdoor_lock": {"entity_id": "lock.outdoor_lock_lock", "name": "Outdoor Lock", "state": outdoor_lock.get("state", "locked")}
+        },
+        "printer_3d": {
+            "name": "Anycubic Kobra X",
+            "online": kobra_online == "on",
+            "state": kobra_state,
+            "progress_pct": kobra_progress,
+            "job_name": kobra_job,
+            "layer": f"{kobra_layer}/{kobra_total_layers}",
+            "time_remaining_min": kobra_rem,
+            "nozzle_temp_c": kobra_nozzle,
+            "bed_temp_c": kobra_bed,
+            "pause_entity": "button.anycubic_kobra_x_pause_print",
+            "resume_entity": "button.anycubic_kobra_x_resume_print",
+            "cancel_entity": "button.anycubic_kobra_x_cancel_print"
+        },
+        "diagnostics": {
+            "hp_printer_black_ink_pct": hp_black,
+            "hp_printer_color_ink_pct": hp_color,
+            "mauricio_iphone_battery_pct": mau_batt
+        }
     }
+    _HA_CACHE["data"] = summary
+    _HA_CACHE["ts"] = now
+    return summary
+
+
+def format_ha_context_for_prompt(ha_summary: Optional[Dict[str, Any]] = None) -> str:
+    """Compact live Home Assistant state + entity IDs for sub-second LLM processing."""
+    d = ha_summary or get_ha_devices_summary()
+    tv = d.get("tv", {})
+    sonos = d.get("sonos", {})
+    th = d.get("thermostat", {})
+    sec = d.get("security", {})
+    p3d = d.get("printer_3d", {})
+    diag = d.get("diagnostics", {})
+
+    lights_str = ", ".join([f"{l['entity_id']}({l['name']})={l['state']}" for l in d.get("lights", [])])
+    switches_str = ", ".join([f"{s['entity_id']}({s['name']})={s['state']}" for s in d.get("switches", [])])
+
+    return (
+        f"TV: {tv.get('entity_id')}={tv.get('state')} vol={tv.get('volume')}% src={tv.get('source')} | "
+        f"Sonos: media_player.sonos_home_theater={sonos.get('state')} vol={sonos.get('volume')}% night={sonos.get('night_sound')}(switch.sonos_home_theater_night_sound)\n"
+        f"Climate: climate.jm_servers_thermostat={th.get('temp_f')}F hum={th.get('humidity')}% action={th.get('action')} fan={th.get('fan_state')}(fan.jm_servers_thermostat)\n"
+        f"Lights: {lights_str}\n"
+        f"Switches/Fans: {switches_str}\n"
+        f"Security: cover.garage_1={sec.get('garage_1', {}).get('state')}, cover.garage_2={sec.get('garage_2', {}).get('state')}, lock.outdoor_lock_lock={sec.get('outdoor_lock', {}).get('state')}\n"
+        f"3DPrinter(Anycubic Kobra X): online={p3d.get('online')} state={p3d.get('state')} progress={p3d.get('progress_pct')}% layer={p3d.get('layer')} rem={p3d.get('time_remaining_min')}m job='{p3d.get('job_name')}' nozzle={p3d.get('nozzle_temp_c')}C bed={p3d.get('bed_temp_c')}C (buttons: button.anycubic_kobra_x_pause_print, button.anycubic_kobra_x_resume_print, button.anycubic_kobra_x_cancel_print)\n"
+        f"Misc: HP_Ink_Black={diag.get('hp_printer_black_ink_pct')}% Color={diag.get('hp_printer_color_ink_pct')}% | Mau_iPhone_Batt={diag.get('mauricio_iphone_battery_pct')}%"
+    )
+
+
+def execute_llm_ha_tags(raw_reply: str) -> tuple[str, List[Dict[str, Any]]]:
+    """Parse and execute any [HA_CALL: domain.service | entity_id | optional_json] tags emitted by the LLM."""
+    executed_actions = []
+    pattern = re.compile(r'\[HA_CALL:\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*\|\s*([a-zA-Z0-9_.,\s]+?)(?:\s*\|\s*(\{.*?\}))?\s*\]')
+    
+    for match in pattern.finditer(raw_reply):
+        domain, service, entities_raw, extra_raw = match.groups()
+        extra = {}
+        if extra_raw:
+            try:
+                extra = json.loads(extra_raw)
+            except Exception:
+                extra = {}
+        for ent in [e.strip() for e in entities_raw.split(",") if e.strip()]:
+            res = call_hass_device_control(domain.strip(), service.strip(), ent, extra)
+            executed_actions.append(res)
+
+    clean_reply = pattern.sub("", raw_reply).strip()
+    return clean_reply, executed_actions
 
 
 def call_hass_device_control(domain: str, service: str, entity_id: str, extra: Optional[dict] = None) -> dict:
@@ -548,14 +739,14 @@ def parse_ics_text(ics_text: str) -> List[Dict[str, Any]]:
     for v in vevents:
         summary_m = re.search(r'SUMMARY:(.*)', v)
         summary = summary_m.group(1).strip() if summary_m else 'Personal Event'
-        summary = summary.replace('\,', ',').replace('\;', ';')
+        summary = summary.replace(r'\,', ',').replace(r'\;', ';')
         
         start_m = re.search(r'DTSTART(?:;[^:]+)?:(\d+T\d+Z?|\d+)', v)
         start_raw = start_m.group(1).strip() if start_m else ''
         
         loc_m = re.search(r'LOCATION:(.*)', v)
         loc = loc_m.group(1).strip() if loc_m else 'Personal Location'
-        loc = loc.replace('\,', ',').replace('\;', ';')
+        loc = loc.replace(r'\,', ',').replace(r'\;', ';')
         
         time_str = 'All Day'
         date_str = 'Upcoming'
@@ -605,9 +796,10 @@ def sync_calendar(source: Optional[str] = None) -> List[Dict[str, Any]]:
     target = source or cfg.get("ical_url")
     
     if not target:
-        default_local = Path("/Users/jmrd/.hermes/sawnee_sunrise_2026-08-15.ics")
-        if default_local.exists():
-            target = str(default_local)
+        for candidate in [Path.home() / ".hermes" / "sawnee_sunrise_2026-08-15.ics", Path("/Users/jmrd/.hermes/sawnee_sunrise_2026-08-15.ics")]:
+            if candidate.exists():
+                target = str(candidate)
+                break
             
     if not target:
         return load_calendar_events()
@@ -641,7 +833,435 @@ def sync_calendar(source: Optional[str] = None) -> List[Dict[str, Any]]:
     return load_calendar_events()
 
 
-# Reverse Engineering Tool
+# ==========================================
+# TOOLS & INTEGRATIONS HUB (BESZEL, MAIL, CALENDAR, GITHUB, HA)
+# ==========================================
+DEFAULT_TOOLS_CONFIG = {
+    "home_assistant": {
+        "name": "Home Assistant Core",
+        "enabled": True,
+        "url": HASS_URL,
+        "description": "Smart lights, Sony BRAVIA 85\" TV, Sonos Arc, Thermostat, Anycubic Kobra X 3D Printer & Locks"
+    },
+    "beszel": {
+        "name": "Beszel Fleet Telemetry",
+        "enabled": True,
+        "url": "http://zimaos:8090",
+        "ssh_host": "jmrd@zimaos",
+        "description": "Real-time CPU, RAM, Disk & Docker container metrics across ZimaOS and OptiPlex nodes"
+    },
+    "calendar": {
+        "name": "Tactical Calendar (.ics / Google)",
+        "enabled": True,
+        "ical_url": "",
+        "description": "Live schedule synchronization and daily mission briefing"
+    },
+    "mail": {
+        "name": "Wayne Mail (IMAP Inbox)",
+        "enabled": False,
+        "imap_host": "imap.gmail.com",
+        "email": "juanmanuelrd1017@gmail.com",
+        "app_password": "",
+        "description": "Unread priority inbox headers and sender triage via IMAP SSL"
+    },
+    "github": {
+        "name": "GitHub Repo Teardown Engine",
+        "enabled": True,
+        "default_repo": "Juanmanuelrd17/alfred-batcomputer",
+        "token": "",
+        "description": "Live GitHub repository tree, language breakdown, README & source code architecture analyzer"
+    },
+    "hermes": {
+        "name": "Alfred // Hermes Agent (Heavy Workloads)",
+        "enabled": True,
+        "bin_path": "/Users/jmrd/.local/bin/hermes",
+        "model": "no-think/kr/claude-haiku-4.5",
+        "description": "Autonomous Hermes Agent (Alfred) with terminal, SSH, file editing, cron, and multi-step engineering tools"
+    }
+}
+_BESZEL_CACHE: Dict[str, Any] = {"data": None, "ts": 0.0}
+_MAIL_CACHE: Dict[str, Any] = {"data": None, "ts": 0.0}
+_HERMES_TASKS: List[Dict[str, Any]] = []
+
+
+def invoke_hermes_agent(task_prompt: str, model: Optional[str] = None) -> Dict[str, Any]:
+    """Delegate a heavy / multi-step workload to Alfred (the Hermes Agent on Mac Mini)."""
+    t0 = time.perf_counter()
+    cfg = load_tools_config().get("hermes", {})
+    if not cfg.get("enabled", True):
+        return {"success": False, "output": "Alfred (Hermes Agent) is currently disabled in Tools config.", "session_id": None, "latency_ms": 0}
+
+    hermes_bin = cfg.get("bin_path") or "/Users/jmrd/.local/bin/hermes"
+    active_model = model or cfg.get("model") or "no-think/kr/claude-haiku-4.5"
+    try:
+        res = subprocess.run(
+            [
+                hermes_bin, "chat", "-Q", "--oneshot",
+                "-m", active_model,
+                "-q", f"{task_prompt} (Keep your final summary concise, under 35 words, suitable for voice readout to Master Ramos.)"
+            ],
+            capture_output=True, text=True, timeout=45
+        )
+        raw_out = (res.stdout or "") + ("\n" + res.stderr if not res.stdout and res.stderr else "")
+        lines = []
+        session_id = None
+        for line in raw_out.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith("Antigravity (agy CLI):") or s.startswith("Warning: Unknown toolsets:"):
+                continue
+            if s.startswith("session_id:"):
+                session_id = s.split(":", 1)[1].strip()
+                continue
+            lines.append(s)
+
+        clean_output = " ".join(lines).strip() or "Alfred completed the Hermes workload."
+        elapsed = round((time.perf_counter() - t0) * 1000)
+        record = {
+            "id": session_id or f"hermes_{uuid.uuid4().hex[:6]}",
+            "task": task_prompt[:120],
+            "output": clean_output,
+            "latency_ms": elapsed,
+            "timestamp": time.strftime("%I:%M:%S %p")
+        }
+        _HERMES_TASKS.insert(0, record)
+        del _HERMES_TASKS[10:]
+        return {"success": True, "output": clean_output, "session_id": session_id, "latency_ms": elapsed, "record": record}
+    except Exception as e:
+        elapsed = round((time.perf_counter() - t0) * 1000)
+        return {"success": False, "output": f"Hermes Agent execution error: {str(e)[:120]}", "session_id": None, "latency_ms": elapsed}
+
+
+def execute_llm_hermes_tags(reply_text: str) -> tuple[str, List[Dict[str, Any]]]:
+    """Parse and execute [HERMES_CALL: <task>] tags emitted by 'Puter when it decides a workload requires Alfred (Hermes Agent)."""
+    pattern = r'\[HERMES_CALL:\s*(.*?)\]'
+    matches = re.findall(pattern, reply_text, flags=re.IGNORECASE | re.DOTALL)
+    clean_reply = re.sub(pattern, '', reply_text, flags=re.IGNORECASE | re.DOTALL).strip()
+    hermes_results = []
+    for task_str in matches:
+        task_clean = task_str.strip()
+        if task_clean:
+            h_res = invoke_hermes_agent(task_clean)
+            hermes_results.append(h_res)
+            if h_res.get("output"):
+                clean_reply = f"{clean_reply} [Alfred // Hermes]: {h_res['output']}".strip()
+    return clean_reply, hermes_results
+
+
+def load_tools_config() -> Dict[str, Any]:
+    cfg = json.loads(json.dumps(DEFAULT_TOOLS_CONFIG))
+    if TOOLS_CONFIG_FILE.exists():
+        try:
+            saved = json.loads(TOOLS_CONFIG_FILE.read_text(encoding="utf-8"))
+            for k, v in saved.items():
+                if k in cfg and isinstance(v, dict):
+                    cfg[k].update(v)
+                else:
+                    cfg[k] = v
+        except Exception:
+            pass
+    return cfg
+
+
+def save_tools_config(cfg: Dict[str, Any]):
+    TOOLS_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+
+def get_beszel_telemetry(use_cache: bool = True) -> List[Dict[str, Any]]:
+    now = time.time()
+    if use_cache and _BESZEL_CACHE["data"] is not None and (now - _BESZEL_CACHE["ts"]) < 10.0:
+        return _BESZEL_CACHE["data"]
+
+    cfg = load_tools_config().get("beszel", {})
+    if not cfg.get("enabled", True):
+        return []
+
+    systems = []
+    try:
+        # Query Beszel SQLite database on ZimaOS directly over SSH key (zero password needed)
+        res = subprocess.run(
+            [
+                "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "-o", "StrictHostKeyChecking=no",
+                cfg.get("ssh_host", "jmrd@zimaos"),
+                'sqlite3 /DATA/AppData/big-bear-beszel/data/data.db "SELECT name, host, status, info FROM systems;"'
+            ],
+            capture_output=True, text=True, timeout=4
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            for line in res.stdout.strip().splitlines():
+                parts = line.split("|", 3)
+                if len(parts) == 4:
+                    name, host, status, info_raw = parts
+                    info = json.loads(info_raw) if info_raw else {}
+                    systems.append({
+                        "name": name,
+                        "host": host,
+                        "status": status,
+                        "cpu_pct": info.get("cpu", 0),
+                        "mem_pct": info.get("mp", 0),
+                        "disk_pct": info.get("dp", 0),
+                        "temp_c": info.get("dt", 0),
+                        "load_avg": info.get("la", []),
+                        "version": info.get("v", "")
+                    })
+    except Exception as e:
+        print(f"Beszel telemetry fetch warning: {e}")
+
+    _BESZEL_CACHE["data"] = systems
+    _BESZEL_CACHE["ts"] = now
+    return systems
+
+
+def get_mail_summary(use_cache: bool = True) -> Dict[str, Any]:
+    now = time.time()
+    if use_cache and _MAIL_CACHE["data"] is not None and (now - _MAIL_CACHE["ts"]) < 30.0:
+        return _MAIL_CACHE["data"]
+
+    cfg = load_tools_config().get("mail", {})
+    if not cfg.get("enabled") or not cfg.get("email") or not cfg.get("app_password"):
+        return {"connected": False, "unread_count": 0, "messages": [], "status": "Not configured (Add IMAP App Password in TOOLS tab)"}
+
+    try:
+        mail = imaplib.IMAP4_SSL(cfg.get("imap_host", "imap.gmail.com"), timeout=5)
+        mail.login(cfg["email"], cfg["app_password"])
+        mail.select("inbox", readonly=True)
+        _, unseen_data = mail.search(None, "UNSEEN")
+        unseen_ids = unseen_data[0].split() if unseen_data and unseen_data[0] else []
+        _, all_data = mail.search(None, "ALL")
+        all_ids = all_data[0].split() if all_data and all_data[0] else []
+        recent_ids = all_ids[-5:][::-1]
+
+        messages = []
+        for mid in recent_ids:
+            _, msg_data = mail.fetch(mid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
+            if msg_data and msg_data[0]:
+                msg = email.message_from_bytes(msg_data[0][1])
+                subj_raw = decode_header(msg.get("Subject", "No Subject"))[0]
+                subj = subj_raw[0].decode(subj_raw[1] or "utf-8", errors="ignore") if isinstance(subj_raw[0], bytes) else str(subj_raw[0])
+                sender_raw = decode_header(msg.get("From", "Unknown"))[0]
+                sender = sender_raw[0].decode(sender_raw[1] or "utf-8", errors="ignore") if isinstance(sender_raw[0], bytes) else str(sender_raw[0])
+                messages.append({"subject": subj[:80], "from": sender[:60], "date": msg.get("Date", "")[:25]})
+        mail.logout()
+        result = {"connected": True, "unread_count": len(unseen_ids), "messages": messages, "status": "ONLINE"}
+        _MAIL_CACHE["data"] = result
+        _MAIL_CACHE["ts"] = now
+        return result
+    except Exception as e:
+        return {"connected": False, "unread_count": 0, "messages": [], "status": f"IMAP Error: {str(e)[:80]}"}
+
+
+_WEATHER_CACHE: Dict[str, Any] = {"data": None, "ts": 0.0}
+
+
+def get_live_weather(use_cache: bool = True) -> Dict[str, Any]:
+    """Fetch live outdoor weather (Open-Meteo for Georgia / local coordinates with 10-min cache)"""
+    now = time.time()
+    if use_cache and _WEATHER_CACHE["data"] is not None and (now - _WEATHER_CACHE["ts"]) < 600.0:
+        return _WEATHER_CACHE["data"]
+    try:
+        # Cumming / Atlanta, GA coordinates (34.2073, -84.1402)
+        r = HTTP_SESSION.get(
+            "https://api.open-meteo.com/v1/forecast?latitude=34.2073&longitude=-84.1402&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph",
+            timeout=3.5
+        )
+        if r.status_code == 200:
+            cur = r.json().get("current", {})
+            wcode = cur.get("weather_code", 0)
+            cond_map = {
+                0: "Clear skies", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+                45: "Foggy", 51: "Light drizzle", 61: "Light rain", 63: "Moderate rain",
+                65: "Heavy rain", 71: "Snow", 80: "Rain showers", 95: "Thunderstorm"
+            }
+            result = {
+                "temp_f": cur.get("temperature_2m", 70),
+                "feels_like_f": cur.get("apparent_temperature", 70),
+                "humidity": cur.get("relative_humidity_2m", 55),
+                "wind_mph": cur.get("wind_speed_10m", 5),
+                "condition": cond_map.get(wcode, "Clear"),
+                "location": "Cumming / Atlanta, GA"
+            }
+            _WEATHER_CACHE["data"] = result
+            _WEATHER_CACHE["ts"] = now
+            return result
+    except Exception as e:
+        print(f"Weather fetch warning: {e}")
+    return _WEATHER_CACHE["data"] or {"temp_f": 72, "condition": "Clear", "humidity": 55, "wind_mph": 4, "location": "Georgia"}
+
+
+def search_live_web(query: str) -> List[Dict[str, str]]:
+    """Search live web via DuckDuckGo HTML & Wikipedia API for up-to-the-minute facts, news, and lookups."""
+    results: List[Dict[str, str]] = []
+    try:
+        url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query)
+        resp = HTTP_SESSION.get(url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}, timeout=4.5)
+        if resp.status_code == 200:
+            snippets = re.findall(r'<a class="result__snippet[^>]*>(.*?)</a>', resp.text, re.I | re.S)
+            titles = re.findall(r'<a rel="nofollow" class="result__a"[^>]*>(.*?)</a>', resp.text, re.I | re.S)
+            for i in range(min(4, len(snippets))):
+                clean_snip = re.sub(r'<[^>]+>', '', snippets[i]).strip()
+                clean_title = re.sub(r'<[^>]+>', '', titles[i]).strip() if i < len(titles) else "Web Result"
+                results.append({"title": clean_title, "snippet": clean_snip})
+    except Exception as e:
+        print(f"Web search warning: {e}")
+    return results
+
+
+def analyze_vision_frame(image_b64: Optional[str] = None, prompt: str = "What am I looking at? Describe it concisely as Alfred.") -> Dict[str, Any]:
+    """Analyze a webcam frame, uploaded photo, or live macOS screen capture using multimodal Gemini/Claude on OmniRoute."""
+    import base64
+    t0 = time.perf_counter()
+
+    # If no image passed from browser webcam, capture macOS host screen or camera automatically!
+    source_type = "webcam_or_upload"
+    if not image_b64:
+        tmp_shot = AUDIO_CACHE / f"screen_{uuid.uuid4().hex[:6]}.jpg"
+        try:
+            subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "jpg", str(tmp_shot)], timeout=3, check=True)
+            if tmp_shot.exists():
+                image_b64 = base64.b64encode(tmp_shot.read_bytes()).decode("utf-8")
+                source_type = "macos_screen_capture"
+                tmp_shot.unlink(missing_ok=True)
+        except Exception as e:
+            print(f"Screen capture fallback warning: {e}")
+            tmp_shot.unlink(missing_ok=True)
+
+    if not image_b64:
+        return {"error": "No camera frame or screen capture available.", "reply": "I do not have an active visual feed on the channel, Master Ramos."}
+
+    if "," in image_b64[:40]:
+        image_b64 = image_b64.split(",", 1)[1]
+
+    vision_messages = [
+        {
+            "role": "system",
+            "content": "You are Alfred Pennyworth, loyal British butler to Master Ramos (Master Juan / Master Remmy). Analyze the visual feed in 1-2 sharp, helpful sentences (<30 words) with refined British wit."
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
+            ]
+        }
+    ]
+
+    reply = ""
+    for v_model in ["antigravity/gemini-3-flash", "no-think/kr/claude-haiku-4.5"]:
+        try:
+            r = HTTP_SESSION.post(
+                f"{OMNIROUTE_URL}/chat/completions",
+                json={"model": v_model, "messages": vision_messages, "temperature": 0.3, "max_tokens": 180},
+                headers={"Authorization": f"Bearer {OMNIROUTE_KEY}"},
+                timeout=12
+            )
+            if r.status_code == 200:
+                reply = r.json()["choices"][0]["message"]["content"].strip()
+                break
+        except Exception as e:
+            print(f"Vision model {v_model} error: {e}")
+
+    if not reply:
+        reply = "Visual feed received, Master Ramos, though the multimodal neural link returned an empty analysis."
+
+    return {
+        "reply": reply,
+        "source": source_type,
+        "latency_ms": round((time.perf_counter() - t0) * 1000)
+    }
+
+
+# Reverse Engineering & GitHub Repo Teardown Tool
+def reverse_engineer_target(target: str) -> Dict[str, Any]:
+    """Inspect and tear down either a real GitHub Repository (owner/repo or github.com URL) OR a live website."""
+    raw = target.strip()
+    gh_match = re.match(r'^(?:https?://github\.com/)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git|/|$)', raw)
+    if gh_match and ("github.com" in raw.lower() or "/" in raw and not raw.startswith("http")):
+        repo_slug = gh_match.group(1)
+        gh_cfg = load_tools_config().get("github", {})
+        headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "Batcomputer-Alfred-HUD"}
+        if gh_cfg.get("token"):
+            headers["Authorization"] = f"token {gh_cfg['token']}"
+
+        try:
+            meta_r = HTTP_SESSION.get(f"https://api.github.com/repos/{repo_slug}", headers=headers, timeout=8)
+            if meta_r.status_code != 200:
+                return {"error": f"GitHub API returned {meta_r.status_code} for {repo_slug}"}
+            meta = meta_r.json()
+            default_branch = meta.get("default_branch", "main")
+
+            langs_r = HTTP_SESSION.get(f"https://api.github.com/repos/{repo_slug}/languages", headers=headers, timeout=6)
+            langs = list(langs_r.json().keys()) if langs_r.status_code == 200 else []
+
+            tree_r = HTTP_SESSION.get(f"https://api.github.com/repos/{repo_slug}/git/trees/{default_branch}?recursive=1", headers=headers, timeout=8)
+            tree_items = tree_r.json().get("tree", []) if tree_r.status_code == 200 else []
+            file_paths = [item["path"] for item in tree_items if item.get("type") == "blob"][:60]
+
+            commits_r = HTTP_SESSION.get(f"https://api.github.com/repos/{repo_slug}/commits?per_page=5", headers=headers, timeout=6)
+            commits = [
+                f"{c['sha'][:7]}: {c['commit']['message'].splitlines()[0]}"
+                for c in (commits_r.json() if commits_r.status_code == 200 and isinstance(commits_r.json(), list) else [])
+            ]
+
+            readme_text = ""
+            readme_r = HTTP_SESSION.get(f"https://raw.githubusercontent.com/{repo_slug}/{default_branch}/README.md", timeout=6)
+            if readme_r.status_code == 200:
+                readme_text = readme_r.text[:1500]
+
+            # Fetch key entrypoint snippet if available
+            code_sample = ""
+            for entry_candidate in ["server.py", "main.py", "app.py", "index.js", "src/index.ts", "package.json"]:
+                if entry_candidate in file_paths:
+                    cr = HTTP_SESSION.get(f"https://raw.githubusercontent.com/{repo_slug}/{default_branch}/{entry_candidate}", timeout=5)
+                    if cr.status_code == 200:
+                        code_sample = f"[{entry_candidate}]:\n" + cr.text[:1200]
+                        break
+
+            prompt = f"""You are Alfred's tactical software architecture teardown module.
+Analyze this REAL GitHub Repository:
+- Repository: {repo_slug} ({meta.get('html_url')})
+- Description: {meta.get('description') or 'N/A'}
+- Stars / Forks / Branch: ⭐ {meta.get('stargazers_count', 0)} | 🍴 {meta.get('forks_count', 0)} | branch: {default_branch}
+- Languages: {', '.join(langs) if langs else 'Unknown'}
+- File Tree ({len(file_paths)} files): {', '.join(file_paths[:40])}
+- Recent Commits: {'; '.join(commits)}
+- README Excerpt:
+{readme_text[:800]}
+- Entrypoint Code Sample:
+{code_sample[:800]}
+
+Provide a crisp 4-section tactical engineering teardown:
+1. Core Architecture & Language Stack
+2. Key Modules & File Tree Breakdown
+3. Data Flow & Runtime Topology
+4. High-Impact Next Upgrades & Security Recommendations"""
+
+            teardown_report = query_brain([
+                {"role": "system", "content": "You are Alfred's tactical repository reverse-engineering module."},
+                {"role": "user", "content": prompt}
+            ])
+
+            return {
+                "mode": "github_repo",
+                "type": "github_repo",
+                "repo": repo_slug,
+                "url": meta.get("html_url", f"https://github.com/{repo_slug}"),
+                "title": f"{repo_slug} ({meta.get('description') or 'GitHub Repository'})",
+                "languages": langs or ["Python", "JavaScript", "HTML"],
+                "tech_stack": langs or ["GitHub Repository"],
+                "tree_sample": file_paths,
+                "files": file_paths,
+                "recent_commits": commits,
+                "stars": meta.get("stargazers_count", 0),
+                "forks": meta.get("forks_count", 0),
+                "report": teardown_report
+            }
+        except Exception as e:
+            return {"error": f"GitHub repo teardown failed: {str(e)}"}
+
+    return reverse_engineer_website(raw)
+
+
 def reverse_engineer_website(url: str) -> Dict[str, Any]:
     """Inspect and tear down website tech stack and structure"""
     if not url.startswith("http"):
@@ -732,6 +1352,22 @@ async def serve_index(request: Request):
     return HTMLResponse("<h1>Batcomputer HUD Initializing...</h1>")
 
 
+@app.get("/manifest.json")
+async def serve_manifest():
+    manifest_file = STATIC_DIR / "manifest.json"
+    if manifest_file.exists():
+        return FileResponse(str(manifest_file), media_type="application/manifest+json")
+    return JSONResponse({})
+
+
+@app.get("/sw.js")
+async def serve_service_worker():
+    sw_file = STATIC_DIR / "sw.js"
+    if sw_file.exists():
+        return FileResponse(str(sw_file), media_type="application/javascript")
+    return HTMLResponse("", media_type="application/javascript")
+
+
 @app.api_route("/api/telemetry", methods=["GET", "HEAD"])
 async def get_telemetry(request: Request):
     cpu_pct = psutil.cpu_percent(interval=None)
@@ -785,15 +1421,17 @@ async def get_telemetry(request: Request):
 
 # Models
 @app.get("/api/models")
-async def list_models():
+def list_models():
     # OmniRoute Antigravity Models
     omni_models = [
-        "alfred-antigravity",
+        "no-think/kr/claude-haiku-4.5",
+        "antigravity/gemini-3.1-flash-lite",
+        "antigravity/gemini-3-flash",
+        "antigravity/gemini-3.5-flash-lite",
         "antigravity/claude-sonnet-5-5-medium",
         "antigravity/claude-opus-5-5-high",
         "antigravity/gemini-3.8-flash-high",
-        "antigravity/gemini-3-flash",
-        "antigravity/gpt-oss-120b-medium"
+        "alfred-antigravity"
     ]
     # Local Ollama Models
     ollama_models = ["qwen2.5:7b", "llama3.1:8b", "qwen2.5-coder:7b-instruct", "mistral:7b-instruct-v0.3-q4_K_M"]
@@ -810,15 +1448,21 @@ async def list_models():
     # Query live OmniRoute catalog
     if OMNIROUTE_KEY:
         try:
-            req = urllib.request.Request(
+            r = HTTP_SESSION.get(
                 f"{OMNIROUTE_URL}/models",
-                headers={"Authorization": f"Bearer {OMNIROUTE_KEY}"}
+                headers={"Authorization": f"Bearer {OMNIROUTE_KEY}"},
+                timeout=3
             )
-            with urllib.request.urlopen(req, timeout=3) as r:
-                data = json.loads(r.read().decode("utf-8"))
-                found = [m.get("id") for m in data.get("data", []) if "antigravity" in m.get("id", "").lower() or "alfred" in m.get("id", "").lower()]
+            if r.status_code == 200:
+                data = r.json()
+                found = [
+                    m.get("id") for m in data.get("data", [])
+                    if any(k in m.get("id", "").lower() for k in ["antigravity", "alfred", "no-think/kr/claude-haiku-4.5", "kr/claude-haiku-4.5"])
+                ]
                 if found:
                     priority_order = [
+                        "no-think/kr/claude-haiku-4.5",
+                        "antigravity/gemini-3.1-flash-lite",
                         "antigravity/gemini-3-flash",
                         "antigravity/gemini-3.5-flash-lite",
                         "antigravity/gemini-3.8-flash-tiered",
@@ -898,25 +1542,29 @@ async def brain_list():
 
 @app.get("/api/brain/get")
 @app.get("/api/brain/file")
-async def brain_get(name: str):
-    p = BRAIN_DIR / f"{name}.md" if not name.endswith(".md") else BRAIN_DIR / name
-    if p.exists():
+def brain_get(name: str):
+    safe_name = Path(name).name
+    p = BRAIN_DIR / f"{safe_name}.md" if not safe_name.endswith(".md") else BRAIN_DIR / safe_name
+    if p.exists() and p.resolve().parent == BRAIN_DIR.resolve():
         return {"name": p.stem, "content": p.read_text(encoding="utf-8")}
     raise HTTPException(status_code=404, detail="Note not found")
 
 
 @app.post("/api/brain/save")
-async def brain_save(data: dict):
-    name = data.get("name", "note")
+def brain_save(data: dict):
+    raw_name = data.get("name", "note") or "note"
+    safe_name = Path(raw_name).name
     content = data.get("content", "")
-    filename = f"{name}.md" if not name.endswith(".md") else name
+    filename = f"{safe_name}.md" if not safe_name.endswith(".md") else safe_name
     p = BRAIN_DIR / filename
+    if p.resolve().parent != BRAIN_DIR.resolve():
+        raise HTTPException(status_code=400, detail="Invalid note filename")
     p.write_text(content, encoding="utf-8")
     return {"success": True, "filename": filename}
 
 
 @app.post("/api/brain/search")
-async def brain_search(data: dict):
+def brain_search(data: dict):
     query = data.get("query", "").lower()
     matches = []
     for p in BRAIN_DIR.glob("*.md"):
@@ -931,7 +1579,7 @@ async def brain_search(data: dict):
 
 # Calendar & Personal iCal Sync
 @app.get("/api/calendar")
-async def get_calendar():
+def get_calendar():
     events = load_calendar_events()
     if not events:
         events = sync_calendar()
@@ -939,7 +1587,7 @@ async def get_calendar():
 
 
 @app.post("/api/calendar/sync")
-async def api_sync_calendar(data: dict = None):
+def api_sync_calendar(data: dict = None):
     url = data.get("url") if data else None
     events = sync_calendar(url)
     return {"success": True, "count": len(events), "events": events, "config": load_calendar_config()}
@@ -1007,24 +1655,204 @@ async def api_clear_history():
     return {"success": True, "message": "Conversation history cleared"}
 
 
-# Reverse Engineering
+# Tools & Integrations Hub Endpoints
+@app.get("/api/tools/config")
+def api_get_tools_config():
+    cfg = load_tools_config()
+    beszel_nodes = get_beszel_telemetry() if cfg.get("beszel", {}).get("enabled") else []
+    mail_info = get_mail_summary() if cfg.get("mail", {}).get("enabled") else {"connected": False, "unread_count": 0, "messages": [], "status": "Disabled"}
+    # Mask app password in UI response
+    masked_cfg = json.loads(json.dumps(cfg))
+    if masked_cfg.get("mail", {}).get("app_password"):
+        masked_cfg["mail"]["app_password_set"] = True
+        masked_cfg["mail"]["app_password"] = ""
+    return {
+        "tools": masked_cfg,
+        "config": {"tools": masked_cfg},
+        "beszel_nodes": beszel_nodes,
+        "beszel": {"systems": beszel_nodes},
+        "mail": mail_info,
+        "hermes_tasks": _HERMES_TASKS
+    }
+
+
+@app.post("/api/tools/config")
+def api_update_tools_config(data: dict):
+    global WHISPER_MLX_MODEL
+    cfg = load_tools_config()
+    tool_id = data.get("tool_id")
+    updates = data.get("updates", {})
+    if tool_id and tool_id in cfg and isinstance(updates, dict):
+        if tool_id == "mail" and "app_password" in updates and not updates["app_password"]:
+            updates.pop("app_password")
+        cfg[tool_id].update(updates)
+        save_tools_config(cfg)
+        _BESZEL_CACHE["ts"] = 0.0
+        _MAIL_CACHE["ts"] = 0.0
+        return {"success": True, "tool": cfg[tool_id], "config": {"tools": cfg}}
+
+    tools_dict = data.get("tools")
+    if isinstance(tools_dict, dict):
+        for k, v in tools_dict.items():
+            if isinstance(v, dict):
+                if k == "whisper" and v.get("model"):
+                    WHISPER_MLX_MODEL = v["model"]
+                if k not in cfg:
+                    cfg[k] = v
+                else:
+                    if k == "mail" and "app_password" in v and not v["app_password"]:
+                        v = {kk: vv for kk, vv in v.items() if kk != "app_password"}
+                    cfg[k].update(v)
+        save_tools_config(cfg)
+        _BESZEL_CACHE["ts"] = 0.0
+        _MAIL_CACHE["ts"] = 0.0
+        return {"success": True, "config": {"tools": cfg}}
+
+    raise HTTPException(status_code=400, detail="Invalid tool_id or updates")
+
+
+@app.get("/api/tools/beszel")
+def api_get_beszel():
+    nodes = get_beszel_telemetry(use_cache=False)
+    return {"nodes": nodes, "systems": nodes}
+
+
+@app.get("/api/tools/mail")
+def api_get_mail():
+    return get_mail_summary(use_cache=False)
+
+
+@app.get("/api/tools/weather")
+def api_get_weather():
+    return get_live_weather(use_cache=False)
+
+
+@app.post("/api/tools/search")
+def api_web_search(data: dict):
+    q = data.get("query", "").strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="Missing query")
+    return {"query": q, "results": search_live_web(q)}
+
+
+@app.get("/api/hermes")
+def api_get_hermes_status():
+    """Return status and recent task log of Alfred (the Hermes Agent)."""
+    cfg = load_tools_config().get("hermes", {})
+    bin_path = cfg.get("binary", "/Users/jmrd/.local/bin/hermes")
+    return {
+        "enabled": cfg.get("enabled", True),
+        "installed": Path(bin_path).exists() or bool(shutil.which("hermes")),
+        "binary": bin_path,
+        "model": cfg.get("model", "no-think/kr/claude-haiku-4.5"),
+        "tasks": _HERMES_TASKS
+    }
+
+
+@app.post("/api/hermes")
+def api_run_hermes_task(data: dict):
+    """Directly dispatch a heavy workload to Alfred (the Hermes Agent)."""
+    task = data.get("task", "").strip() or data.get("prompt", "").strip()
+    if not task:
+        raise HTTPException(status_code=400, detail="Missing task prompt for Hermes Agent (Alfred)")
+    res = invoke_hermes_agent(task, model=data.get("model"))
+    return res
+
+
+@app.post("/api/vision")
+def api_vision_endpoint(data: dict):
+    """JARVIS Computer Vision endpoint: analyzes webcam snapshot, uploaded image, or live macOS screen capture."""
+    image_b64 = data.get("image")
+    prompt = data.get("prompt") or "Look at this visual feed and tell me what you see or how to solve it in 1-2 sentences, Master Ramos."
+    skip_tts = bool(data.get("skip_tts", True))
+    res = analyze_vision_frame(image_b64, prompt)
+    audio_url = None if skip_tts else synthesize_voice(res.get("reply", ""), CURRENT_VOICE)
+    res["audio_url"] = audio_url
+    return res
+
+
+@app.api_route("/api/briefing", methods=["GET", "POST"])
+def api_proactive_briefing(speak_on_host: bool = False, skip_tts: bool = True):
+    """Proactive JARVIS Morning / Arrival Briefing (callable from HUD, voice, or Home Assistant motion/door webhook)."""
+    t0 = time.perf_counter()
+    hour = int(time.strftime("%H"))
+    greeting = "Good morning, Master Ramos" if hour < 12 else ("Good afternoon, Master Juan" if hour < 18 else "Good evening, Master Remmy")
+    weather = get_live_weather()
+    ha = get_ha_devices_summary()
+    thermo = ha.get("thermostat", {})
+    printer = ha.get("printer_3d", {})
+    beszel = get_beszel_telemetry()
+    events = load_calendar_events()
+    mail = get_mail_summary()
+
+    b_summary = ", ".join([f"{n['name']} at {n['cpu_pct']}% CPU" for n in beszel]) if beszel else "all servers nominal"
+    cal_part = f"You have {len(events)} scheduled items today, starting with {events[0]['title']} at {events[0]['time']}." if events else "Your schedule is clear today."
+    print_part = f"Your Anycubic 3D printer is {printer.get('state', 'idle')} ({printer.get('progress_pct', 0)}%)." if printer.get("online") else ""
+    mail_part = f"You have {mail.get('unread_count', 0)} unread emails." if mail.get("connected") else ""
+
+    reply = (
+        f"{greeting}. It is {time.strftime('%I:%M %p')}, {weather.get('temp_f', 72)}°F and {weather.get('condition', 'clear').lower()} outside in Georgia, "
+        f"with indoor climate at {thermo.get('temp_f', 72)}°F. "
+        f"Beszel fleet is online ({b_summary}). {print_part} {cal_part} {mail_part}"
+    ).strip()
+
+    audio_url = None if skip_tts else synthesize_voice(reply, CURRENT_VOICE)
+    if speak_on_host:
+        try:
+            subprocess.Popen(["/usr/bin/say", "-v", "Daniel", "-r", "198", reply])
+        except Exception:
+            pass
+
+    return {
+        "reply": reply,
+        "audio_url": audio_url,
+        "weather": weather,
+        "latency_ms": round((time.perf_counter() - t0) * 1000)
+    }
+
+
+@app.post("/api/audio/stop")
+def api_stop_host_audio():
+    """Immediately stop any active speech synthesis or playback on the host (Barge-In interruption)."""
+    try:
+        subprocess.run(["pkill", "-f", "/usr/bin/say"], check=False)
+        subprocess.run(["pkill", "-f", "afplay"], check=False)
+    except Exception:
+        pass
+    return {"stopped": True}
+
+
+@app.get("/manifest.json")
+def get_pwa_manifest():
+    return {
+        "name": "BCv1.2 // Alfred Batcomputer HUD",
+        "short_name": "Alfred HUD",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#01060d",
+        "theme_color": "#00e5ff",
+        "description": "Jarvis-grade Batcomputer Voice & Smart Home Command Center"
+    }
+
+
+# Reverse Engineering & GitHub Repo Teardown
 @app.post("/api/tools/reverse-engineer")
-async def run_reverse_engineer(data: dict):
-    url = data.get("url", "")
+def run_reverse_engineer(data: dict):
+    url = data.get("url", "").strip()
     if not url:
-        raise HTTPException(status_code=400, detail="Missing target URL")
-    res = reverse_engineer_website(url)
+        url = load_tools_config().get("github", {}).get("default_repo", "Juanmanuelrd17/alfred-batcomputer")
+    res = reverse_engineer_target(url)
     return res
 
 
 # Smart Home Device Hub & Endpoints
 @app.get("/api/smart-home/devices")
-async def get_smart_home_devices():
+def get_smart_home_devices():
     return get_ha_devices_summary()
 
 
 @app.post("/api/smart-home/control")
-async def control_smart_home_device(data: dict):
+def control_smart_home_device(data: dict):
     domain = data.get("domain", "light")
     service = data.get("service", "toggle")
     entity_id = data.get("entity_id", "")
@@ -1036,32 +1864,34 @@ async def control_smart_home_device(data: dict):
 
 
 @app.get("/api/smart-home/tv")
-async def get_tv_status():
+def get_tv_status():
     return call_hass_tv("status")
 
 
 @app.post("/api/smart-home/tv")
-async def control_tv(data: dict):
+def control_tv(data: dict):
     action = data.get("action", "toggle")
     return call_hass_tv(action)
 
 
 # Voice Cloning Endpoint
 @app.post("/api/voice/clone")
-async def api_clone_voice(file: UploadFile = File(...), name: str = Form("Michael Caine"), voice_id: str = Form("michael_caine")):
-    tmp_input = AUDIO_CACHE / f"upload_{uuid.uuid4().hex[:8]}{Path(file.filename).suffix}"
-    content_bytes = await file.read()
+def api_clone_voice(file: UploadFile = File(...), name: str = Form("Michael Caine"), voice_id: str = Form("michael_caine")):
+    safe_voice_id = re.sub(r'[^a-zA-Z0-9_-]', '_', voice_id.strip()) or "michael_caine"
+    tmp_input = AUDIO_CACHE / f"upload_{uuid.uuid4().hex[:8]}{Path(file.filename or 'sample.wav').suffix}"
+    content_bytes = file.file.read()
     tmp_input.write_bytes(content_bytes)
     
-    ref_wav = AUDIO_CACHE / f"ref_{voice_id}.wav"
+    ref_wav = AUDIO_CACHE / f"ref_{safe_voice_id}.wav"
     ffmpeg = "/opt/homebrew/bin/ffmpeg" if Path("/opt/homebrew/bin/ffmpeg").exists() else "ffmpeg"
     cmd = [ffmpeg, "-y", "-i", str(tmp_input), "-t", "6", "-vn", "-acodec", "pcm_s16le", "-ar", "24000", "-ac", "1", str(ref_wav)]
     res = subprocess.run(cmd, capture_output=True, text=True)
+    tmp_input.unlink(missing_ok=True)
     if res.returncode != 0:
         raise HTTPException(status_code=400, detail=f"FFmpeg extraction failed: {res.stderr}")
         
     # Transcribe
-    transcript = "Some men just want to watch the world burn, Master Wayne."
+    transcript = "Some men just want to watch the world burn, Master Ramos."
     try:
         with open(ref_wav, "rb") as f:
             files = {"file": ("ref.wav", f, "audio/wav")}
@@ -1080,8 +1910,8 @@ async def api_clone_voice(file: UploadFile = File(...), name: str = Form("Michae
             if prof_res.status_code == 200:
                 prof_data = prof_res.json()
                 profile_id = prof_data.get("id")
-                save_custom_voice(voice_id, profile_id, name)
-                return {"success": True, "voice_id": voice_id, "profile_id": profile_id, "name": name, "transcript": transcript}
+                save_custom_voice(safe_voice_id, profile_id, name)
+                return {"success": True, "voice_id": safe_voice_id, "profile_id": profile_id, "name": name, "transcript": transcript}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"VoiceStudio cloning registration error: {str(e)}")
         
@@ -1090,62 +1920,71 @@ async def api_clone_voice(file: UploadFile = File(...), name: str = Form("Michae
 
 # Chat Core with AI and Tools
 @app.post("/api/chat")
-async def chat_endpoint(data: dict):
+def chat_endpoint(data: dict):
     global CURRENT_MODEL, CURRENT_VOICE
+    t_start = time.perf_counter()
     user_message = data.get("message", "").strip()
     if not user_message:
-        return {"reply": "I am standing by, Master Wayne. All Batcave telemetry links are online.", "audio_url": None}
+        return {"reply": "I am standing by, Master Ramos. All Batcave telemetry links are online.", "audio_url": None, "latency_ms": 0}
 
     req_model = data.get("model")
     req_voice = data.get("voice")
+    skip_tts = bool(data.get("skip_tts", False))
     active_model = req_model or CURRENT_MODEL
     active_voice = req_voice or CURRENT_VOICE
+
+    def maybe_tts(reply_text: str, v: Optional[str] = None) -> Optional[str]:
+        if skip_tts:
+            return None
+        return synthesize_voice(reply_text, v or active_voice)
 
     lower = user_message.lower()
     
     # 1. Voice switching trigger
     if "switch voice to" in lower or "change voice to" in lower:
-        for v in ["daniel", "alloy", "echo", "fable", "samantha", "oliver"]:
-            if v in lower:
+        for v in ["daniel", "alloy", "echo", "fable", "samantha", "oliver", "michael_caine"]:
+            if v.replace("_", " ") in lower or v in lower:
                 CURRENT_VOICE = v
-                reply = f"Voice profile successfully transferred to {v.capitalize()}. How may I assist you now, sir?"
-                audio_url = synthesize_voice(reply, CURRENT_VOICE)
-                return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"voice": CURRENT_VOICE}}
+                reply = f"Voice profile successfully transferred to {v.replace('_', ' ').title()}. How may I assist you now, Master Juan?"
+                audio_url = maybe_tts(reply, CURRENT_VOICE)
+                return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"voice": CURRENT_VOICE}, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
     # 2. Model switching trigger
     if "switch model to" in lower or "switch brain to" in lower:
         if "antigravity" in lower or "alfred" in lower:
-            CURRENT_MODEL = "alfred-antigravity"
-            reply = "Neural processing core successfully linked to OmniRoute Antigravity brain. Awaiting directives, Master Wayne."
-            audio_url = synthesize_voice(reply)
-            return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"model": CURRENT_MODEL}}
-        for m in ["alfred-antigravity", "antigravity/claude-sonnet-5-5-medium", "antigravity/claude-opus-5-5-high", "antigravity/gemini-3.8-flash-high", "qwen2.5:7b", "llama3.1:8b", "qwen2.5-coder:7b-instruct", "mistral:7b-instruct-v0.3-q4_K_M"]:
+            CURRENT_MODEL = "antigravity/gemini-3.1-flash-lite"
+            reply = "Neural processing core successfully linked to OmniRoute Antigravity Flash-Lite brain. Awaiting directives, Master Ramos."
+            audio_url = maybe_tts(reply)
+            return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"model": CURRENT_MODEL}, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
+        for m in ["antigravity/gemini-3.1-flash-lite", "antigravity/gemini-3-flash", "antigravity/claude-sonnet-5-5-medium", "antigravity/claude-opus-5-5-high", "antigravity/gemini-3.8-flash-high", "qwen2.5:7b", "llama3.1:8b", "qwen2.5-coder:7b-instruct", "mistral:7b-instruct-v0.3-q4_K_M"]:
             if m.split(":")[0] in lower or m.lower() in lower:
                 CURRENT_MODEL = m
-                reply = f"Neural processing core switched to {m}. Awaiting directives, Master Wayne."
-                audio_url = synthesize_voice(reply)
-                return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"model": CURRENT_MODEL}}
+                reply = f"Neural processing core switched to {m}. Awaiting directives, Master Remmy."
+                audio_url = maybe_tts(reply)
+                return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"model": CURRENT_MODEL}, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
-    # 3. Comprehensive Home Assistant Directives
+    # 3. Comprehensive Home Assistant Directives (0ms Reflex Fast-Paths)
     # TV Directives
     if any(q in lower for q in ["turn on the tv", "turn on tv", "power on tv", "prende la tv", "encender tv"]):
         call_hass_tv("turn_on")
-        reply = "Powering on the Sony BRAVIA 85-inch display in the living room, Master Wayne."
-        audio_url = synthesize_voice(reply)
-        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"device": "tv", "state": "on"}}
+        reply = "Powering on the Sony BRAVIA 85-inch display in the living room, Master Ramos."
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"device": "tv", "state": "on"}, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
     if any(q in lower for q in ["turn off the tv", "turn off tv", "power off tv", "apaga la tv", "apagar tv"]):
         call_hass_tv("turn_off")
-        reply = "Living room Sony BRAVIA television powered down, sir."
-        audio_url = synthesize_voice(reply)
-        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"device": "tv", "state": "off"}}
+        reply = "Living room Sony BRAVIA television powered down, Master Juan."
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"device": "tv", "state": "off"}, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
     # Smart Home Directives (Lights, TV, Fans)
-    clean_lower = lower.strip()
-    if clean_lower.startswith("alfred"): clean_lower = clean_lower[6:].strip(" ,.!?")
-    if clean_lower.startswith("hey alfred"): clean_lower = clean_lower[10:].strip(" ,.!?")
+    clean_lower = re.sub(r'^(?:(?:hey|ok|yo|hi)\s+)?(?:computer|computa|commuter|puter|pewter|purer|putter|peter|tutor|tudor|ooter|cuter|alfred)[\s,.!:;-]*', '', lower.strip(), flags=re.IGNORECASE)
+    if not clean_lower:
+        reply = "Standing by, Master Ramos. What is your directive?"
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
     
-    is_question = any(q in clean_lower for q in ["why ", "why'd", "cant ", "can't ", "cannot ", "doesnt ", "doesn't ", "how to ", "how do "])
+    is_question = any(q in clean_lower for q in ["why ", "why'd", "cant ", "can't ", "cannot ", "doesnt ", "doesn't ", "how to ", "how do ", "which ", "what ", "are "])
 
     if not is_question:
         has_light = any(w in clean_lower for w in ["light", "lights", "luz", "luces", "dimmer", "lampara"])
@@ -1162,39 +2001,39 @@ async def chat_endpoint(data: dict):
                     call_hass_device_control("light", "turn_off", "light.dimmer_cuarto_jm")
                     call_hass_device_control("light", "turn_off", "light.home_theater")
                     call_hass_device_control("light", "turn_off", "light.luz_cuarto_mau")
-                    reply = "All quarters secured. Every lighting array has been extinguished, Master Wayne."
+                    reply = "All quarters secured. Every lighting array has been extinguished, Master Ramos."
                     target = "all_lights"
                 elif is_lr:
                     target_ent = "light.home_theater" if ("theater" in clean_lower or "theatre" in clean_lower) else "light.luz_sala"
                     call_hass_device_control("light", "turn_off", target_ent)
-                    reply = "Living room lighting extinguished, sir."
+                    reply = "Living room lighting extinguished, Master Remmy."
                     target = target_ent
                 else:
                     call_hass_device_control("light", "turn_off", "light.dimmer_cuarto_jm")
-                    reply = "Your bedroom lighting has been extinguished, Master Wayne."
+                    reply = "Your bedroom lighting has been extinguished, Master Juan."
                     target = "light.dimmer_cuarto_jm"
                 
-                audio_url = synthesize_voice(reply, active_voice)
-                return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"device": target, "state": "off"}}
+                audio_url = maybe_tts(reply, active_voice)
+                return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"device": target, "state": "off"}, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
             if has_on or "on" in clean_lower or "prende" in clean_lower:
                 if is_all:
                     call_hass_device_control("light", "turn_on", "light.luz_sala")
                     call_hass_device_control("light", "turn_on", "light.dimmer_cuarto_jm")
-                    reply = "All perimeter and quarter lights illuminated, sir."
+                    reply = "All perimeter and quarter lights illuminated, Master Ramos."
                     target = "all_lights"
                 elif is_lr:
                     target_ent = "light.home_theater" if ("theater" in clean_lower or "theatre" in clean_lower) else "light.luz_sala"
                     call_hass_device_control("light", "turn_on", target_ent)
-                    reply = "Living room illumination active, sir."
+                    reply = "Living room illumination active, Master Remmy."
                     target = target_ent
                 else:
                     call_hass_device_control("light", "turn_on", "light.dimmer_cuarto_jm")
-                    reply = "Illuminating your bedroom quarters, Master Wayne."
+                    reply = "Illuminating your bedroom quarters, Master Juan."
                     target = "light.dimmer_cuarto_jm"
 
-                audio_url = synthesize_voice(reply, active_voice)
-                return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"device": target, "state": "on"}}
+                audio_url = maybe_tts(reply, active_voice)
+                return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"device": target, "state": "on"}, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
     # Thermostat / Climate Queries
     if any(q in lower for q in ["what's the temperature", "what is the temperature", "thermostat status", "how warm is it", "how cold is it", "temperatura"]):
@@ -1203,96 +2042,188 @@ async def chat_endpoint(data: dict):
         temp_f = t.get("temp_f", 72.5)
         hum = t.get("humidity", 62)
         act = t.get("action", "cooling")
-        reply = f"Indoor temperature is {temp_f} degrees Fahrenheit with {hum}% humidity, and HVAC is actively {act}, sir."
-        audio_url = synthesize_voice(reply)
-        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "thermostat": t}
+        reply = f"Indoor temperature is {temp_f} degrees Fahrenheit with {hum}% humidity, and HVAC is actively {act}, Master Ramos."
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "thermostat": t, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
     # Fans
     if any(q in lower for q in ["turn on fan", "turn on the fan"]):
         call_hass_device_control("switch", "turn_on", "switch.ventilador_mau")
-        reply = "Circulation fan activated, sir."
-        audio_url = synthesize_voice(reply)
-        return {"user_message": user_message, "reply": reply, "audio_url": audio_url}
+        reply = "Circulation fan activated, Master Remmy."
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
     if any(q in lower for q in ["turn off fan", "turn off the fan"]):
         call_hass_device_control("switch", "turn_off", "switch.ventilador_mau")
         call_hass_device_control("switch", "turn_off", "switch.ventilador_papas")
-        reply = "Fans powered down, sir."
-        audio_url = synthesize_voice(reply)
-        return {"user_message": user_message, "reply": reply, "audio_url": audio_url}
+        reply = "Fans powered down, Master Juan."
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
-    # 4. Reverse Engineer Command
-    if lower.startswith("reverse engineer ") or "reverse engineer https" in lower:
-        m = re.search(r'https?://[^\s]+', user_message)
-        if m:
-            target_url = m.group(0)
-            res = reverse_engineer_website(target_url)
-            reply = f"Teardown complete for {target_url}. Primary stack detected: {', '.join(res.get('tech_stack', []))}. I have rendered the architectural blueprint in the Reverse Engineer drawer, sir."
-            audio_url = synthesize_voice(reply)
-            return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "reverse_engineer_data": res}
+    # 3b. Cinema / Movie Mode & Media Playback Reflexes
+    if any(q in lower for q in ["movie mode", "cinema mode", "theater mode", "modo cine"]):
+        call_hass_tv("turn_on")
+        call_hass_device_control("light", "turn_off", "light.luz_sala")
+        call_hass_device_control("light", "turn_off", "light.home_theater")
+        call_hass_device_control("switch", "turn_on", "switch.sonos_home_theater_speech_enhancement")
+        reply = "Cinema protocol engaged, Master Ramos. Living room lights extinguished, Sony BRAVIA 85-inch display online, and Sonos speech enhancement active."
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "ha_actions": [{"entity_id": "media_player.tv_sala_2", "service": "turn_on"}], "latency_ms": round((time.perf_counter() - t_start) * 1000)}
+
+    if any(q in lower for q in ["pause the tv", "pause tv", "resume tv", "play the tv", "pause media", "pause sonos"]):
+        call_hass_device_control("media_player", "media_play_pause", "media_player.tv_sala_2")
+        call_hass_device_control("media_player", "media_play_pause", "media_player.sonos_home_theater")
+        reply = "Media playback toggled on the living room display and Sonos array, Master Remmy."
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
+
+    # 3c. Proactive Morning / Arrival Briefing Trigger
+    if any(q in lower for q in ["morning briefing", "daily briefing", "arrival briefing", "give me my briefing", "full briefing"]):
+        b_res = api_proactive_briefing(speak_on_host=False, skip_tts=skip_tts)
+        b_res["user_message"] = user_message
+        return b_res
+
+    # 3d. Computer Vision / Screen Inspection Trigger ("Alfred, look at my screen" / "what is on my screen")
+    if any(q in lower for q in ["look at my screen", "what is on my screen", "what's on my screen", "analyze my screen", "read my screen"]):
+        v_res = analyze_vision_frame(None, user_message)
+        reply = v_res.get("reply", "Screen inspected, Master Ramos.")
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "vision": True, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
+
+    # 4. Reverse Engineer / GitHub Repo Teardown Command
+    if lower.startswith("reverse engineer ") or "reverse engineer " in lower or "teardown " in lower:
+        m = re.search(r'(?:https?://[^\s]+|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)', user_message.split("engineer")[-1] if "engineer" in lower else user_message.split("teardown")[-1])
+        target_url = m.group(0).strip(".,!?") if m else "Juanmanuelrd17/alfred-batcomputer"
+        res = reverse_engineer_target(target_url)
+        reply = f"Teardown complete for {target_url}. Primary stack detected: {', '.join(res.get('tech_stack', [])[:4])}. Blueprint rendered in the Teardown drawer, Master Ramos."
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "reverse_engineer_data": res, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
     # 5. Calendar Query
     if "what's on my schedule" in lower or "today's calendar" in lower or "my agenda" in lower:
         events = load_calendar_events()
         if events:
             agenda_str = ", ".join([f"{e['title']} at {e['time']}" for e in events[:3]])
-            reply = f"You have {len(events)} objectives scheduled today, Master Wayne: {agenda_str}."
+            reply = f"You have {len(events)} objectives scheduled today, Master Ramos: {agenda_str}."
         else:
-            reply = "Your tactical schedule is currently clear for the remainder of the day, sir."
-        audio_url = synthesize_voice(reply)
-        return {"user_message": user_message, "reply": reply, "audio_url": audio_url}
+            reply = "Your tactical schedule is currently clear for the remainder of the day, Master Juan."
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
     # 6. Memory Commands & Directives
     if "clear history" in lower or "clear memory" in lower or "reset conversation" in lower or "forget our conversation" in lower:
         clear_chat_history()
-        reply = "Active conversation buffer purged, Master Wayne. Long-term memory vaults remain intact."
-        audio_url = synthesize_voice(reply)
-        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"memory": "cleared_history"}}
+        reply = "Active conversation buffer purged, Master Ramos. Long-term memory vaults remain intact."
+        audio_url = maybe_tts(reply)
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"memory": "cleared_history"}, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
-    rem_match = re.search(r'(?:please\s+)?(?:remember\s+that|remember|take\s+note\s+that|memorize\s+that)\s+(.+)', user_message, re.IGNORECASE)
-    if rem_match:
+    clean_directive = re.sub(r'^(?:(?:hey|ok|yo|hi)\s+)?(?:computer|computa|commuter|puter|pewter|purer|putter|peter|tutor|tudor|ooter|cuter|alfred)[\s,.!:;-]*', '', user_message.strip(), flags=re.IGNORECASE)
+
+    # 6b. Explicit Delegation to Alfred (Hermes Agent) when user says "ask alfred...", "have alfred...", "tell alfred...", "use hermes..."
+    explicit_hermes = re.match(r'^(?:please\s+)?(?:ask\s+alfred\s+to|have\s+alfred|tell\s+alfred\s+to|use\s+alfred\s+to|delegate\s+to\s+alfred|use\s+hermes\s+to|ask\s+hermes\s+to|hermes[,:]?)\s+(.+)', clean_directive, re.IGNORECASE)
+    if explicit_hermes:
+        hermes_task = explicit_hermes.group(1).strip()
+        h_res = invoke_hermes_agent(hermes_task)
+        reply = f"I delegated that workload to Alfred on Hermes, Master Ramos. Alfred reports: {h_res.get('output') or h_res.get('reply', 'Task completed.')}"
+        audio_url = maybe_tts(reply)
+        hist = load_chat_history()
+        hist.append({"role": "user", "content": user_message})
+        hist.append({"role": "assistant", "content": reply})
+        save_chat_history(hist)
+        return {
+            "user_message": user_message,
+            "reply": reply,
+            "audio_url": audio_url,
+            "hermes_actions": [h_res],
+            "latency_ms": round((time.perf_counter() - t_start) * 1000)
+        }
+
+    rem_match = re.match(r'^(?:please\s+)?(?:remember\s+that|remember\s+to|remember|take\s+note\s+that|memorize\s+that)\s+(.+)', clean_directive, re.IGNORECASE)
+    if rem_match and not clean_directive.endswith("?") and len(rem_match.group(1).strip()) > 3:
         fact = rem_match.group(1).strip()
         add_memory_fact(fact, category="User Fact")
-        reply = f"Committed to long-term memory, Master Wayne: '{fact[:60]}'."
-        audio_url = synthesize_voice(reply)
+        reply = f"Committed to long-term memory, Master Remmy: '{fact[:60]}'."
+        audio_url = maybe_tts(reply)
         # record turn
         hist = load_chat_history()
         hist.append({"role": "user", "content": user_message})
         hist.append({"role": "assistant", "content": reply})
         save_chat_history(hist)
-        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"memory": "added", "fact": fact}}
+        return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"memory": "added", "fact": fact}, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
 
     events = load_calendar_events()
     calendar_summary = "\n".join([f"- {e.get('time')} - {e.get('title')} ({e.get('priority')}) at {e.get('location')}" for e in events]) if events else "No events scheduled."
 
-    # 7. General Reasoning via OmniRoute or Local Ollama
+    # 7. General Reasoning & Agentic Home Assistant + Hermes Tool Calling via OmniRoute or Local Ollama
     req_model = data.get("model")
     req_voice = data.get("voice")
     active_model = req_model or CURRENT_MODEL
     active_voice = req_voice or CURRENT_VOICE
 
+    ha_summary = get_ha_devices_summary()
+    ha_live_context = format_ha_context_for_prompt(ha_summary)
+    beszel_nodes = get_beszel_telemetry()
+    beszel_str = ", ".join([f"{n['name']}({n['host']}): status={n['status']} cpu={n['cpu_pct']}% mem={n['mem_pct']}% disk={n['disk_pct']}% temp={n['temp_c']}C" for n in beszel_nodes]) if beszel_nodes else "No Beszel nodes active"
+    mail_info = get_mail_summary()
+    mail_str = f"Unread={mail_info.get('unread_count', 0)} | Recent: " + "; ".join([f"{m['subject']} (from {m['from']})" for m in mail_info.get("messages", [])[:3]]) if mail_info.get("connected") else mail_info.get("status", "Disconnected")
+    weather_info = get_live_weather()
+    weather_str = f"{weather_info.get('temp_f')}F ({weather_info.get('condition')}), feels like {weather_info.get('feels_like_f', weather_info.get('temp_f'))}F, humidity {weather_info.get('humidity')}%, wind {weather_info.get('wind_mph')} mph in {weather_info.get('location')}"
+
+    # On-demand Live Web Search if user asks for external facts, news, weather, or web lookup
+    web_search_str = ""
+    if any(k in lower for k in ["search for", "search the web", "look up", "latest news", "who won", "stock price", "price of", "what happened in", "google "]):
+        web_hits = search_live_web(clean_directive)
+        if web_hits:
+            web_search_str = "\nLIVE WEB SEARCH RESULTS:\n" + "\n".join([f"- {h['title']}: {h['snippet']}" for h in web_hits])
+
     engine_desc = f"OmniRoute Antigravity Neural Gateway ({active_model})" if is_omniroute_model(active_model) else f"Local Ollama Core ({active_model})"
-    system_prompt = f"""You are Alfred Pennyworth, loyal British butler to Bruce Wayne (Batman) and tactical AI orchestrator of the Batcomputer.
-You speak with refined British dry wit, utmost loyalty, and razor-sharp intellect.
-CRITICAL CONSTRAINT: Keep replies under 25 words in 1-2 punchy sentences for high-speed voice delivery. No preamble or fluff.
-Current time: {time.strftime('%I:%M %p')}.
-Host: Apple Silicon M1 Mac Mini, 8GB Unified RAM, macOS.
-Active Neural Brain: {engine_desc}.
+    system_prompt = f"""You are 'Puter (Computer), the fast, witty Batcomputer AI assistant to Juan Manuel Ramos (inspired by The Lego Batman Movie 'Puter + JARVIS).
+Wake words: "Computer", "Puter", "Hey Computer", or "Hey Puter".
+Address him naturally as 'Master Ramos', 'Master Juan', or 'Master Remmy' (NEVER call him Master Wayne or Bruce).
+Reply in 1-2 crisp sentences (<25 words).
 
-Persistent Long-Term Memories:
+CONTINUOUS MULTI-TURN CONVERSATION AWARENESS:
+- You are engaged in a fluid, continuous conversation with Master Ramos.
+- Maintain strict contextual awareness across turns:
+  * Pronouns ("it", "they", "that", "those", "the other one", "both", "all of them") refer directly to entities, devices, rooms, or topics discussed in the immediately preceding turns.
+  * If Master Ramos clarifies or corrects a previous command (e.g., "I meant the monitors", "no, the bedroom lights", "make it 10%", "turn that off too", "is it still running?"), immediately apply the correction using full context from recent messages.
+  * During an ongoing exchange, do not restart conversations with greetings or generic pleasantries. Speak naturally as a seamless dialogue partner.
+
+ALFRED // HERMES AGENT DELEGATION PROTOCOL (AUTONOMOUS HEAVY WORKLOADS):
+- Remember that ALFRED is your autonomous Hermes Agent (`/Users/jmrd/.local/bin/hermes`) running on Mac-mini-M1 with full terminal, shell, SSH, file editing, code execution, cron, and deep research capabilities.
+- You ('Puter) handle fast conversational replies, instant HUD status checks, and Home Assistant device toggles directly.
+- DECIDE AUTONOMOUSLY when a request is a greater/heavier workload (e.g., running shell/terminal commands, checking host processes/uptime/ports/logs, inspecting files or git repos on disk, SSH diagnostics across servers, writing scripts, or multi-step automation—OR when the user explicitly asks to use Alfred/Hermes).
+- When you decide Alfred (Hermes) should handle the workload, briefly state that you are dispatching Alfred and append this exact tag at the end of your reply:
+[HERMES_CALL: <clear, self-contained instruction for Alfred to execute>]
+Example: Deploying Alfred via Hermes to inspect the Mac Mini uptime and top CPU processes, Master Ramos. [HERMES_CALL: Run uptime and ps aux on this Mac Mini and summarize the system load in one sentence.]
+
+HOME ASSISTANT PROTOCOL:
+- For status questions already covered in LIVE HA STATE or BESZEL FLEET TELEMETRY below, answer directly without any tags.
+- ONLY when asked to change/control a smart home device or scene, append tags at the end:
+[HA_CALL: domain.service | entity_id | {{"optional_param": value}}]
+Examples: [HA_CALL: light.turn_on | light.luz_papas], [HA_CALL: light.turn_on | light.dimmer_cuarto_jm | {{"brightness_pct": 25}}], [HA_CALL: media_player.volume_set | media_player.sonos_home_theater | {{"volume_level": 0.3}}], [HA_CALL: media_player.media_play_pause | media_player.tv_sala_2], [HA_CALL: button.press | button.anycubic_kobra_x_pause_print]
+
+Time: {time.strftime('%I:%M %p')}
+OUTDOOR WEATHER: {weather_str}
+LIVE HA STATE:
+{ha_live_context}
+BESZEL FLEET TELEMETRY:
+{beszel_str}
+MAIL INBOX:
+{mail_str}{web_search_str}
+Memories:
 {format_memories_for_prompt()}
-
-Today's Schedule / Tactical Calendar:
-{calendar_summary}
-
-Second Brain Vault:
-{get_second_brain_summary()[:800]}"""
+Schedule: {calendar_summary}"""
 
     history = load_chat_history()
-    messages = [{"role": "system", "content": system_prompt}] + history[-8:] + [{"role": "user", "content": user_message}]
+    messages = [{"role": "system", "content": system_prompt}] + history[-14:] + [{"role": "user", "content": user_message}]
     
-    reply = query_brain(messages, active_model)
-    audio_url = synthesize_voice(reply, active_voice)
+    raw_reply = query_brain(messages, active_model)
+    reply, ha_actions = execute_llm_ha_tags(raw_reply)
+    reply, hermes_actions = execute_llm_hermes_tags(reply)
+    if not reply:
+        reply = "Directive executed, Master Ramos."
+    audio_url = maybe_tts(reply, active_voice)
 
     # Persist rolling conversation turns
     history.append({"role": "user", "content": user_message})
@@ -1302,18 +2233,34 @@ Second Brain Vault:
     return {
         "user_message": user_message,
         "reply": reply,
-        "audio_url": audio_url
+        "audio_url": audio_url,
+        "ha_actions": ha_actions,
+        "hermes_actions": hermes_actions,
+        "latency_ms": round((time.perf_counter() - t_start) * 1000)
+    }
+
+
+@app.post("/api/transcribe")
+def api_transcribe_only(file: UploadFile = File(...)):
+    """Ultra-fast STT endpoint using Apple Silicon Metal GPU MLX-Whisper (~160ms) with domain prompt."""
+    t0 = time.perf_counter()
+    audio_bytes = file.file.read()
+    text = transcribe_audio(audio_bytes, file.filename or "chunk.webm")
+    return {
+        "text": text,
+        "latency_ms": round((time.perf_counter() - t0) * 1000),
+        "engine": "MLX-GPU" if _MLX_WHISPER_READY else "VoiceStudio"
     }
 
 
 @app.post("/api/listen")
-async def listen_endpoint(
+def listen_endpoint(
     file: UploadFile = File(...),
     voice: Optional[str] = Form(None),
     model: Optional[str] = Form(None)
 ):
     global CURRENT_VOICE, CURRENT_MODEL
-    audio_bytes = await file.read()
+    audio_bytes = file.file.read()
     transcription = transcribe_audio(audio_bytes, file.filename or "recording.wav")
     
     if not transcription or not transcription.strip():
@@ -1322,7 +2269,7 @@ async def listen_endpoint(
     active_voice = voice or CURRENT_VOICE
     active_model = model or CURRENT_MODEL
     
-    chat_result = await chat_endpoint({
+    chat_result = chat_endpoint({
         "message": transcription,
         "voice": active_voice,
         "model": active_model
@@ -1331,13 +2278,78 @@ async def listen_endpoint(
     return chat_result
 
 
+@app.post("/api/tts")
+def api_tts_endpoint(data: dict):
+    """Decoupled ultra-fast TTS endpoint so text replies render in <1s while audio streams immediately after."""
+    text = data.get("text", "").strip()
+    voice = data.get("voice") or CURRENT_VOICE
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing text")
+    t0 = time.perf_counter()
+    audio_url = synthesize_voice(text, voice)
+    return {"audio_url": audio_url, "tts_ms": round((time.perf_counter() - t0) * 1000)}
+
+
 @app.api_route("/api/audio/{filename}", methods=["GET", "HEAD"])
 async def get_audio(filename: str):
-    file_path = AUDIO_CACHE / filename
-    if file_path.exists():
-        return FileResponse(str(file_path), media_type="audio/mpeg")
+    safe_filename = Path(filename).name
+    file_path = AUDIO_CACHE / safe_filename
+    if file_path.exists() and file_path.resolve().parent == AUDIO_CACHE.resolve():
+        media_type = "audio/wav" if safe_filename.endswith(".wav") else "audio/mpeg"
+        return FileResponse(str(file_path), media_type=media_type)
     raise HTTPException(status_code=404, detail="Audio file not found")
 
 
+@app.get("/api/files")
+def api_list_host_files(path: Optional[str] = None, query: Optional[str] = None):
+    """Fallback file explorer endpoint if local desktop bridge (127.0.0.1:7778) is not reachable."""
+    home_dir = Path.home()
+    target = Path(path).expanduser() if path else home_dir
+    if not target.exists() or not target.is_dir():
+        target = home_dir
+    items = []
+    q_lower = (query or "").strip().lower()
+    try:
+        entries = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        for entry in entries:
+            if entry.name.startswith(".") and entry.name not in (".gemini", ".config"):
+                continue
+            if q_lower and q_lower not in entry.name.lower():
+                continue
+            try:
+                st = entry.stat()
+                items.append({
+                    "name": entry.name,
+                    "path": str(entry),
+                    "is_dir": entry.is_dir(),
+                    "size": st.st_size if not entry.is_dir() else 0,
+                    "mtime": int(st.st_mtime),
+                })
+            except Exception:
+                continue
+            if len(items) >= 80:
+                break
+    except Exception as e:
+        return {"path": str(target), "parent": str(target.parent), "items": [], "error": str(e)}
+    return {
+        "host": platform.node(),
+        "path": str(target),
+        "parent": str(target.parent) if target.parent != target else str(target),
+        "items": items
+    }
+
+
+@app.get("/api/files/preview")
+def api_preview_host_file(path: str):
+    p = Path(path).expanduser()
+    if not p.exists() or not p.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        content = p.read_text(encoding="utf-8", errors="replace")[:12000]
+        return {"name": p.name, "path": str(p), "size": p.stat().st_size, "content": content}
+    except Exception as e:
+        return {"name": p.name, "path": str(p), "error": str(e), "content": ""}
+
+
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="127.0.0.1", port=7776, reload=False)
+    uvicorn.run("server:app", host="0.0.0.0", port=7776, reload=False)
