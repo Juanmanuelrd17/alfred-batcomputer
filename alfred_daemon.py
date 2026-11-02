@@ -1226,19 +1226,18 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
 
 def configure_hyprland_overlay_rules():
     """Apply floating top-right overlay rules on Hyprland so the companion app never steals focus or tiles,
-    plus full-screen 2560x1440 rules for the BCv1.2 Desktop Shell Override window."""
-    if not shutil.which("hyprctl"):
+    plus full-screen rules for the BCv1.2 Desktop Shell Override windows across all connected monitors."""
+    if sys.platform != "linux" or not shutil.which("hyprctl"):
         return
     rules = [
         "float,title:^(Puter // BCv1.2 Companion)$",
         "pin,title:^(Puter // BCv1.2 Companion)$",
         "move 100%-435 42,title:^(Puter // BCv1.2 Companion)$",
         "size 420 265,title:^(Puter // BCv1.2 Companion)$",
-        "float,title:^(Puter // BCv1.2 Desktop Shell)$",
-        "move 0 0,title:^(Puter // BCv1.2 Desktop Shell)$",
-        "size 100% 100%,title:^(Puter // BCv1.2 Desktop Shell)$",
-        "noborder,title:^(Puter // BCv1.2 Desktop Shell)$",
-        "noshadow,title:^(Puter // BCv1.2 Desktop Shell)$",
+        "fullscreen,title:^(Puter // BCv1.2 Desktop Shell.*)$",
+        "pin,title:^(Puter // BCv1.2 Desktop Shell.*)$",
+        "noborder,title:^(Puter // BCv1.2 Desktop Shell.*)$",
+        "noshadow,title:^(Puter // BCv1.2 Desktop Shell.*)$",
     ]
     for r in rules:
         try:
@@ -1248,12 +1247,10 @@ def configure_hyprland_overlay_rules():
 
 
 def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_in_desktop_mode: bool = False):
-    """Launch the native PyQt6 BCv1.2 Floating Companion Widget + Full-Screen Desktop Override Shell + System Tray."""
+    """Launch the native PyQt6 BCv1.2 Floating Companion Widget + Full-Screen Dual-Monitor Desktop Override Shells + System Tray."""
     global _DESKTOP_MODE_ACTIVE
 
     # CRITICAL: Import PyQt6.QtWebEngineWidgets BEFORE creating QApplication!
-    # Chromium requires Qt.ApplicationAttribute.AA_ShareOpenGLContexts which is automatically configured when
-    # QWebEngineWidgets is imported prior to QApplication instantiation.
     try:
         from PyQt6.QtWebEngineWidgets import QWebEngineView
         from PyQt6.QtWebEngineCore import QWebEngineSettings
@@ -1295,22 +1292,21 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
 
     bat_icon = create_bat_icon()
 
-    # Full-Screen 2560x1440 BCv1.2 Desktop Override Window (QWebEngineView)
+    desktop_shells = []
+
+    # Full-Screen Dual/Multi-Monitor BCv1.2 Desktop Override Window (QWebEngineView)
     class DesktopShellWindow(QWidget):
-        def __init__(self, target_url: str):
+        def __init__(self, target_url: str, screen):
             super().__init__()
-            self.setWindowTitle("Puter // BCv1.2 Desktop Shell")
+            self.screen_obj = screen
+            s_name = screen.name()
+            self.setWindowTitle(f"Puter // BCv1.2 Desktop Shell - {s_name}")
             self.setWindowIcon(bat_icon)
             self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
             self.setStyleSheet("background-color: #01060d; border: none;")
 
-            target_screen = app.primaryScreen()
-            for scr in app.screens():
-                if "DP-1" in scr.name() or scr.geometry().width() >= 2560:
-                    target_screen = scr
-                    break
-            self.setScreen(target_screen)
-            self.setGeometry(target_screen.geometry())
+            self.setScreen(screen)
+            self.setGeometry(screen.geometry())
 
             lyt = QVBoxLayout(self)
             lyt.setContentsMargins(0, 0, 0, 0)
@@ -1324,8 +1320,8 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                     settings = self.web.settings()
                     settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
                     settings.setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)
-                    # Load directly from the local bridge (http://127.0.0.1:7778/?desktop=1) for instant local rendering
-                    local_shell_url = f"http://127.0.0.1:{LOCAL_BRIDGE_PORT}/?desktop=1"
+                    # Load directly from the local bridge with screen identifier
+                    local_shell_url = f"http://127.0.0.1:{LOCAL_BRIDGE_PORT}/?desktop=1&screen={s_name}"
                     self.web.setUrl(QUrl(local_shell_url))
                     lyt.addWidget(self.web)
                 except Exception as e:
@@ -1337,32 +1333,31 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                 fallback_lbl.setStyleSheet("color: #00e5ff; font-size: 16px; padding: 40px;")
                 lyt.addWidget(fallback_lbl)
 
-            # Keyboard shortcuts inside Desktop Shell: F11 or Escape exits full-screen desktop override
+            # Keyboard shortcuts inside Desktop Shell: F11 or Escape exits full-screen desktop override across all screens
             esc_short = QShortcut(QKeySequence("Escape"), self)
-            esc_short.activated.connect(self.hide_desktop_shell)
+            esc_short.activated.connect(self._exit_all_desktops)
             f11_short = QShortcut(QKeySequence("F11"), self)
-            f11_short.activated.connect(self.hide_desktop_shell)
+            f11_short.activated.connect(self._exit_all_desktops)
+
+        def _exit_all_desktops(self):
+            if hasattr(self, "_companion_ref") and self._companion_ref:
+                self._companion_ref.toggle_desktop_override(force_state="off")
+            else:
+                for s in desktop_shells:
+                    s.hide_desktop_shell()
 
         def show_desktop_shell(self):
-            global _DESKTOP_MODE_ACTIVE
-            target_screen = app.primaryScreen()
-            for scr in app.screens():
-                if "DP-1" in scr.name() or scr.geometry().width() >= 2560:
-                    target_screen = scr
-                    break
-            self.setScreen(target_screen)
-            self.setGeometry(target_screen.geometry())
+            self.setScreen(self.screen_obj)
+            self.setGeometry(self.screen_obj.geometry())
             self.showFullScreen()
             self.raise_()
-            self.activateWindow()
-            _DESKTOP_MODE_ACTIVE = True
 
         def hide_desktop_shell(self):
-            global _DESKTOP_MODE_ACTIVE
             self.hide()
-            _DESKTOP_MODE_ACTIVE = False
 
-    desktop_shell = DesktopShellWindow(hud_url)
+    # Instantiate DesktopShellWindow on every detected monitor
+    for scr in app.screens():
+        desktop_shells.append(DesktopShellWindow(hud_url, scr))
 
     class CompanionWidget(QWidget):
         def __init__(self):
@@ -1541,15 +1536,21 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                 self.mode_btn.setStyleSheet("background-color: rgba(0,255,136,0.25); color: #00ff88; border-color: #00ff88;")
 
         def toggle_desktop_override(self, force_state: Optional[str] = None):
-            if force_state == "on" or (force_state is None and not desktop_shell.isVisible()):
-                desktop_shell.show_desktop_shell()
+            global _DESKTOP_MODE_ACTIVE
+            any_visible = any(s.isVisible() for s in desktop_shells)
+            if force_state == "on" or (force_state is None and not any_visible):
+                for s in desktop_shells:
+                    s.show_desktop_shell()
                 self.raise_()
                 self.desktop_btn.setText("🖥️ EXIT DESK")
                 self.desktop_btn.setStyleSheet("background-color: rgba(0,255,136,0.28); color: #00ff88; border-color: #00ff88;")
+                _DESKTOP_MODE_ACTIVE = True
             else:
-                desktop_shell.hide_desktop_shell()
+                for s in desktop_shells:
+                    s.hide_desktop_shell()
                 self.desktop_btn.setText("🖥️ DESKTOP")
                 self.desktop_btn.setStyleSheet("border-color: #00ff88; color: #00ff88;")
+                _DESKTOP_MODE_ACTIVE = False
 
         def handle_event(self, ev: dict):
             if "desktop_toggle" in ev:
@@ -1606,6 +1607,8 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
 
     bridge = UiBridge()
     win = CompanionWidget()
+    for s in desktop_shells:
+        s._companion_ref = win
     bridge.event_signal.connect(win.handle_event)
     daemon.ui_callback = lambda d: bridge.event_signal.emit(d)
 
