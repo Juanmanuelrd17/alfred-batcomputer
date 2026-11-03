@@ -1740,38 +1740,32 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                     mons = json.loads(mons_raw) if mons_raw.strip() else []
                     clients_raw = subprocess.check_output(["hyprctl", "clients", "-j"], timeout=1).decode("utf-8")
                     clients = json.loads(clients_raw) if clients_raw.strip() else []
-                    act_win_raw = subprocess.check_output(["hyprctl", "activewindow", "-j"], timeout=1).decode("utf-8")
-                    act_win = json.loads(act_win_raw) if act_win_raw.strip() else {}
 
-                    # Count real application windows per workspace (ignoring 'Puter HUD and companion)
+                    # Count real application windows per workspace (strictly ignoring Batcomputer windows and micro-overlays)
                     ws_app_windows = {}
                     for c in clients:
                         title = c.get("title", "")
                         cls = c.get("class", "")
                         if "Puter // BCv1.2" in title or (cls == "python3" and "Puter" in title):
                             continue
-                        if c.get("floating") and c.get("pinned"):
-                            continue
-                        ws_id = c.get("workspace", {}).get("id")
-                        if ws_id is not None:
-                            ws_app_windows[ws_id] = ws_app_windows.get(ws_id, 0) + 1
-
-                    act_title = act_win.get("title", "")
-                    is_puter_active = "Puter // BCv1.2" in act_title
-                    has_real_active_app = bool(act_win.get("address")) and not is_puter_active
+                        # If a window is mapped and has visible dimensions (>50px), it is an active application
+                        if c.get("mapped") and c.get("size", [0, 0])[0] > 50 and c.get("size", [0, 0])[1] > 50:
+                            ws_id = c.get("workspace", {}).get("id")
+                            if ws_id is not None:
+                                ws_app_windows[ws_id] = ws_app_windows.get(ws_id, 0) + 1
 
                     for m in mons:
                         m_name = m["name"]
                         ws_id = m.get("activeWorkspace", {}).get("id")
                         real_app_count = ws_app_windows.get(ws_id, 0)
-                        # Desktop is exposed if:
-                        # 1. There are 0 real application windows on this workspace, OR
-                        # 2. This monitor is focused and there is no active real application
-                        is_desktop = (real_app_count == 0) or (m.get("focused") and not has_real_active_app)
+                        
+                        # Strict rule: Desktop HUD is ONLY active if the workspace is completely empty (0 application windows).
+                        # If ANY app (e.g. Zen Browser, Discord, Code, Terminal) exists on this workspace, HUD remains SLEEPING.
+                        is_desktop = (real_app_count == 0)
 
                         if last_states.get(m_name) != is_desktop:
                             last_states[m_name] = is_desktop
-                            print(f"🖥️ [Desktop Auto-Wake]: Monitor {m_name} -> {'WAKE (Desktop)' if is_desktop else 'SLEEP (App Active)'}")
+                            print(f"🖥️ [Desktop Auto-Wake]: Monitor {m_name} (ws {ws_id}, apps {real_app_count}) -> {'WAKE (Empty Desktop)' if is_desktop else 'SLEEP (App Active)'}")
                             daemon.emit_ui(auto_desktop_wake={"monitor": m_name, "state": is_desktop})
                 except Exception:
                     pass
@@ -1791,8 +1785,10 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                         buf += chunk
                         while "\n" in buf:
                             line, buf = buf.split("\n", 1)
-                            if any(ev in line for ev in ("workspace>>", "workspacev2>>", "focusedmon>>", "activewindow>>", "activewindowv2>>", "closewindow>>", "openwindow>>")):
-                                time.sleep(0.04)
+                            # Only re-evaluate on actual workspace switches or window open/close/move.
+                            # NEVER re-evaluate on tab switching (activewindow) so browsing between tabs is 100% uninterrupted.
+                            if any(ev in line for ev in ("workspace>>", "workspacev2>>", "focusedmon>>", "closewindow>>", "openwindow>>", "movewindow>>")):
+                                time.sleep(0.08)
                                 evaluate_desktop()
                 except Exception:
                     time.sleep(2)
