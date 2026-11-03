@@ -1737,19 +1737,37 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                 nonlocal last_states
                 try:
                     mons_raw = subprocess.check_output(["hyprctl", "monitors", "-j"], timeout=1).decode("utf-8")
-                    mons = json.loads(mons_raw)
-                    ws_raw = subprocess.check_output(["hyprctl", "workspaces", "-j"], timeout=1).decode("utf-8")
-                    workspaces = {w["id"]: w for w in json.loads(ws_raw)}
+                    mons = json.loads(mons_raw) if mons_raw.strip() else []
+                    clients_raw = subprocess.check_output(["hyprctl", "clients", "-j"], timeout=1).decode("utf-8")
+                    clients = json.loads(clients_raw) if clients_raw.strip() else []
                     act_win_raw = subprocess.check_output(["hyprctl", "activewindow", "-j"], timeout=1).decode("utf-8")
-                    act_win = json.loads(act_win_raw)
-                    has_active_window = bool(act_win.get("address"))
+                    act_win = json.loads(act_win_raw) if act_win_raw.strip() else {}
+
+                    # Count real application windows per workspace (ignoring 'Puter HUD and companion)
+                    ws_app_windows = {}
+                    for c in clients:
+                        title = c.get("title", "")
+                        cls = c.get("class", "")
+                        if "Puter // BCv1.2" in title or (cls == "python3" and "Puter" in title):
+                            continue
+                        if c.get("floating") and c.get("pinned"):
+                            continue
+                        ws_id = c.get("workspace", {}).get("id")
+                        if ws_id is not None:
+                            ws_app_windows[ws_id] = ws_app_windows.get(ws_id, 0) + 1
+
+                    act_title = act_win.get("title", "")
+                    is_puter_active = "Puter // BCv1.2" in act_title
+                    has_real_active_app = bool(act_win.get("address")) and not is_puter_active
 
                     for m in mons:
                         m_name = m["name"]
                         ws_id = m.get("activeWorkspace", {}).get("id")
-                        ws_info = workspaces.get(ws_id, {"windows": 0})
-                        # Desktop exposed: workspace has 0 client windows, OR this monitor is focused with no active window
-                        is_desktop = (ws_info.get("windows", 0) == 0) or (m.get("focused") and not has_active_window)
+                        real_app_count = ws_app_windows.get(ws_id, 0)
+                        # Desktop is exposed if:
+                        # 1. There are 0 real application windows on this workspace, OR
+                        # 2. This monitor is focused and there is no active real application
+                        is_desktop = (real_app_count == 0) or (m.get("focused") and not has_real_active_app)
 
                         if last_states.get(m_name) != is_desktop:
                             last_states[m_name] = is_desktop
