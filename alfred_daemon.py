@@ -30,11 +30,15 @@ import argparse
 import tempfile
 import threading
 import subprocess
+import fcntl
+import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import deque
 from pathlib import Path
 from typing import Optional, Tuple, Callable
 import requests
+
+BASE_DIR = Path(__file__).resolve().parent
 
 DEFAULT_SERVER_URL = os.environ.get("ALFRED_SERVER_URL", "https://batcomputer.jmrdserver.duckdns.org")
 FALLBACK_SERVER_URL = "http://100.77.249.27:7776"
@@ -47,11 +51,11 @@ CHUNK_DURATION_S = 0.1  # 100ms frames
 CHUNK_SAMPLES = int(SAMPLE_RATE * CHUNK_DURATION_S)
 PRE_ROLL_CHUNKS = 4     # 400ms pre-roll buffer so "Computer" / "Puter" never clips the first syllable
 
-# VAD thresholds
-SPEECH_RMS_THRESHOLD = float(os.environ.get("ALFRED_VAD_THRESHOLD", "0.018"))
+# VAD thresholds (generous timing so long sentences, natural pauses and complex queries are never cut off)
+SPEECH_RMS_THRESHOLD = float(os.environ.get("ALFRED_VAD_THRESHOLD", "0.024"))
 BARGE_IN_RMS_THRESHOLD = float(os.environ.get("ALFRED_BARGE_THRESHOLD", "0.055"))
-SILENCE_LIMIT_S = 0.70
-MAX_RECORD_S = 8.0
+SILENCE_LIMIT_S = float(os.environ.get("ALFRED_SILENCE_LIMIT", "1.85"))   # 1.85s natural pause tolerance between phrases
+MAX_RECORD_S = float(os.environ.get("ALFRED_MAX_RECORD_S", "35.0"))        # 35s max recording length for lengthy directives
 
 # Matches "Computer", "Puter", "Hey Computer", "Hey Puter", and common Whisper phonetic homophones
 WAKE_WORD_REGEX = re.compile(
@@ -169,6 +173,21 @@ class AlfredBackgroundDaemon:
         self.notifier = DesktopNotifier(enabled=notify_enabled)
         self.ui_callback = ui_callback
         self.session = requests.Session()
+
+        # Load Wayne Tech Auth Token for secure Batcomputer communication
+        self.auth_token = os.environ.get("BATCOMPUTER_AUTH_TOKEN", "")
+        if not self.auth_token:
+            auth_file = Path(__file__).resolve().parent / "auth_config.json"
+            if auth_file.exists():
+                try:
+                    cfg = json.loads(auth_file.read_text(encoding="utf-8"))
+                    self.auth_token = cfg.get("daemon_token", "")
+                except Exception:
+                    pass
+        if self.auth_token:
+            self.session.headers["Authorization"] = f"Bearer {self.auth_token}"
+            self.session.headers["X-Batcomputer-Token"] = self.auth_token
+
         self.active_player: Optional[subprocess.Popen] = None
         self.awaiting_followup_until = 0.0
         self.force_next_utterance = False
@@ -177,10 +196,19 @@ class AlfredBackgroundDaemon:
         self.running = True
         self.current_mic_name = "Default Input"
         self.current_mic_is_real = True
+        self.current_state = "STANDBY"
+        self.last_user_text = ""
+        self.last_reply_text = ""
         self._chime_wav_high = self._build_chime_wav([880, 1320], duration_s=0.065)
-        self._chime_wav_low = self._build_chime_wav([660], duration_s=0.06)
+        self._chime_wav_low = self._build_chime_wav([740, 520], duration_s=0.055)
 
     def emit_ui(self, **kwargs):
+        if "state" in kwargs:
+            self.current_state = kwargs["state"]
+        if "user_text" in kwargs:
+            self.last_user_text = kwargs["user_text"]
+        if "reply_text" in kwargs:
+            self.last_reply_text = kwargs["reply_text"]
         if self.ui_callback:
             try:
                 self.ui_callback(kwargs)
@@ -208,14 +236,30 @@ class AlfredBackgroundDaemon:
             pass
         return str(path)
 
+    def register_with_server(self):
+        try:
+            payload = {
+                "client_id": socket.gethostname(),
+                "hostname": socket.gethostname(),
+                "platform": sys.platform,
+                "bridge_url": f"http://127.0.0.1:{LOCAL_BRIDGE_PORT}",
+                "capabilities": ["screen_capture", "mic_input", "desktop_apps", "gpu_telemetry"],
+                "version": "1.2"
+            }
+            self.session.post(f"{self.server_url}/api/clients/register", json=payload, timeout=3)
+        except Exception:
+            pass
+
     def check_server_connectivity(self):
         try:
             r = self.session.get(f"{self.server_url}/api/telemetry", timeout=4)
             if r.status_code == 200:
+                self.register_with_server()
                 return
         except Exception as e:
             print(f"⚠️ [Primary URL {self.server_url} unreachable: {e}] — switching to {FALLBACK_SERVER_URL}")
             self.server_url = FALLBACK_SERVER_URL
+            self.register_with_server()
 
     def is_speaking(self) -> bool:
         return self.active_player is not None and self.active_player.poll() is None
@@ -256,7 +300,7 @@ class AlfredBackgroundDaemon:
             except Exception:
                 pass
         else:
-            for cmd in (["paplay", wav_path], ["aplay", "-q", wav_path], ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", wav_path]):
+            for cmd in (["pw-play", "--volume", "0.35", wav_path], ["paplay", wav_path], ["aplay", "-q", wav_path], ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", wav_path]):
                 if shutil.which(cmd[0]):
                     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     break
@@ -264,7 +308,6 @@ class AlfredBackgroundDaemon:
     def _on_playback_ended(self):
         """Called immediately when TTS audio finishes playing to open the 10s seamless conversation window."""
         self.awaiting_followup_until = time.time() + 10.0
-        self.play_chime(high=True)
         print("🦇 ['Puter]: Conversation window open (10s) — speak freely without wake word...")
         self.emit_ui(
             state="CONVO OPEN (10s)",
@@ -332,14 +375,14 @@ class AlfredBackgroundDaemon:
             self._on_playback_ended()
 
     def capture_local_screen_b64(self) -> Optional[str]:
-        tmp_img = Path(tempfile.gettempdir()) / f"alfred_screen_{os.getpid()}.jpg"
+        tmp_img = Path(tempfile.gettempdir()) / f"alfred_screen_{os.getpid()}.png"
         try:
             if sys.platform == "darwin":
-                subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "jpg", str(tmp_img)], timeout=3, check=True)
+                subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "png", str(tmp_img)], timeout=3, check=True)
             else:
                 for cmd in [
-                    ["gnome-screenshot", "-f", str(tmp_img)],
                     ["grim", str(tmp_img)],
+                    ["gnome-screenshot", "-f", str(tmp_img)],
                     ["import", "-window", "root", str(tmp_img)],
                 ]:
                     if shutil.which(cmd[0]):
@@ -381,8 +424,6 @@ class AlfredBackgroundDaemon:
         if local_voice_action:
             reply_msg = local_voice_action["reply"]
             ev_payload = {"state": "SPEAKING", "user_text": directive, "reply_text": reply_msg, "latency_ms": 12}
-            if not local_voice_action.get("keep_desktop"):
-                ev_payload["desktop_toggle"] = "off"
             self.emit_ui(**ev_payload)
             self.notifier.notify("🖥️ 'Puter Local Desktop Telemetry", reply_msg, timeout_ms=7000)
             self._speak_short_reply(reply_msg)
@@ -396,7 +437,7 @@ class AlfredBackgroundDaemon:
             try:
                 v_res = self.session.post(
                     f"{self.server_url}/api/vision",
-                    json={"image": b64_screen, "prompt": directive, "skip_tts": False},
+                    json={"image": b64_screen, "client_host": socket.gethostname(), "target": "client", "prompt": directive, "skip_tts": False},
                     timeout=18
                 ).json()
                 reply = v_res.get("reply", "")
@@ -459,7 +500,7 @@ class AlfredBackgroundDaemon:
             r = self.session.post(
                 f"{self.server_url}/api/transcribe",
                 files={"file": ("speech.wav", wav_bytes, "audio/wav")},
-                timeout=8
+                timeout=25
             )
             if r.status_code != 200:
                 self.emit_ui(state="STANDBY")
@@ -497,21 +538,22 @@ class AlfredBackgroundDaemon:
             if not match:
                 self.emit_ui(state="STANDBY", ignored_text=f"Heard (no wake word): \"{transcript}\"")
                 return
+            # Confirmed wake word! Play high wake chime
+            self.play_chime(high=True)
             directive = transcript[match.end():].strip(" ,.!:;-?")
             if len(directive) < 3:
-                # User said "Computer", "Puter", "Hey Computer", or "Hey Puter" — chime and open 8-second follow-up window!
-                self.play_chime(high=True)
-                print("🦇 ['Puter]: Standing by, Master Ramos! Speak your directive (8s follow-up window)...")
-                self.awaiting_followup_until = time.time() + 8.0
+                # User said "Computer", "Puter", "Hey Computer", or "Hey Puter" — open 15-second follow-up window!
+                print("🦇 ['Puter]: Standing by, Master Ramos! Speak your directive (15s follow-up window)...")
+                self.awaiting_followup_until = time.time() + 15.0
                 self.emit_ui(
-                    state="AWAITING DIRECTIVE (8s)",
+                    state="AWAITING DIRECTIVE (15s)",
                     user_text=transcript,
                     reply_text="Standing by, Master Ramos — speak your command now!"
                 )
                 self.notifier.notify(
-                    "🎙️ 'Puter Listening (8s Window)",
+                    "🎙️ 'Puter Listening (15s Window)",
                     f"Heard \"{transcript}\" — Standing by, Master Ramos. Speak your directive!",
-                    timeout_ms=5000
+                    timeout_ms=7000
                 )
                 return
         else:
@@ -521,7 +563,6 @@ class AlfredBackgroundDaemon:
                 return
 
         self.awaiting_followup_until = 0.0
-        self.play_chime(high=True)
         self.send_text_directive(directive, stt_ms=stt_ms)
 
     def _compute_rms_int16(self, raw_bytes: bytes) -> float:
@@ -547,6 +588,15 @@ class AlfredBackgroundDaemon:
 
     def run_audio_loop(self):
         self.check_server_connectivity()
+
+        def _heartbeat_worker():
+            while self.running:
+                time.sleep(30)
+                try:
+                    self.register_with_server()
+                except Exception:
+                    pass
+        threading.Thread(target=_heartbeat_worker, daemon=True).start()
         print("=================================================================")
         print("🦇 'PUTER // BCv1.2 NATIVE COMPANION & VOICE DAEMON ONLINE")
         print(f"🔗 Server: {self.server_url}")
@@ -705,7 +755,6 @@ class AlfredBackgroundDaemon:
                                 subprocess.run(["pactl", "set-default-source", current_source], check=False, timeout=2)
                             except Exception:
                                 pass
-                            self.play_chime(high=True)
                             self.notifier.notify("🎤 Microphone Connected", f"Switched audio input to {new_src}", timeout_ms=4000)
                             break
 
@@ -954,25 +1003,76 @@ def get_local_disk_stats(mount_path: str) -> dict:
         return {"total_gb": 500.0, "used_gb": 180.0, "free_gb": 320.0, "percent": 36.0}
 
 
+def focus_hyprland_window(app_classes: list) -> bool:
+    """If a window matching one of app_classes is already running in Hyprland,
+    instantly focus its workspace and raise it to top (sub-10ms response)."""
+    if sys.platform != "linux" or not shutil.which("hyprctl"):
+        return False
+    try:
+        res = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True, timeout=0.8)
+        if res.returncode == 0 and res.stdout.strip():
+            clients = json.loads(res.stdout)
+            for c in clients:
+                c_class = (c.get("class") or "").lower()
+                c_init = (c.get("initialClass") or "").lower()
+                if any(ac.lower() in (c_class, c_init) for ac in app_classes):
+                    ws = c.get("workspace", {}).get("name") or str(c.get("workspace", {}).get("id"))
+                    # Instantly switch workspace to the window
+                    subprocess.run(
+                        ["hyprctl", "dispatch", f'hl.dsp.focus({{ workspace = "{ws}" }})'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.8
+                    )
+                    # Raise window to the top
+                    subprocess.run(
+                        ["hyprctl", "dispatch", "hl.dsp.window.bring_to_top()"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.8
+                    )
+                    return True
+    except Exception as e:
+        print(f"⚠️ [Hyprland Focus Error]: {e}")
+    return False
+
+
+def spawn_detached_desktop_command(cmd_list: list):
+    """Spawns an application completely detached from the daemon's cgroup and environment."""
+    env = os.environ.copy()
+    # Strip webview-specific variables so spawned desktop apps start cleanly
+    for k in ("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "WEBKIT_DISABLE_DMABUF_RENDERER", "QTWEBENGINE_CHROMIUM_FLAGS"):
+        env.pop(k, None)
+    try:
+        # Prefer native Omarchy / Wayland uwsm launcher for instantaneous graphical launch
+        if shutil.which("uwsm") and os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            full_cmd = ["uwsm", "app", "--"] + cmd_list
+            subprocess.Popen(full_cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            return
+        if shutil.which("systemd-run") and os.environ.get("INVOCATION_ID"):
+            full_cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect"] + cmd_list
+            subprocess.Popen(full_cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            return
+    except Exception:
+        pass
+    subprocess.Popen(cmd_list, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
 def open_local_file_or_dir(target_path: str, app_mode: str = "default") -> dict:
     p = Path(target_path).expanduser()
     if not p.exists():
         return {"success": False, "error": f"Path not found: {p}"}
     try:
         if app_mode == "code" and shutil.which("code"):
-            subprocess.Popen(["code", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            spawn_detached_desktop_command(["code", str(p)])
         elif app_mode == "nautilus" and shutil.which("nautilus"):
-            subprocess.Popen(["nautilus", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            spawn_detached_desktop_command(["nautilus", str(p)])
         elif app_mode == "terminal":
             term_dir = str(p if p.is_dir() else p.parent)
             for term in (["foot", "-D", term_dir], ["kitty", "--directory", term_dir], ["gnome-terminal", f"--working-directory={term_dir}"]):
                 if shutil.which(term[0]):
-                    subprocess.Popen(term, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    spawn_detached_desktop_command(term)
                     break
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(["open", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         else:
-            subprocess.Popen(["xdg-open", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            spawn_detached_desktop_command(["xdg-open", str(p)])
         return {"success": True, "path": str(p), "app": app_mode}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -984,36 +1084,174 @@ def launch_local_desktop_application(app_key: str, optional_path: str = "") -> d
     try:
         if key in ("steam", "games"):
             if shutil.which("steam"):
-                subprocess.Popen(["steam"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return {"success": True, "message": "Launching Steam on your desktop, Master Ramos."}
+                # If Steam is already open on any workspace, instantly switch to it and bring it to top!
+                focused = focus_hyprland_window(["steam"])
+                # Always send IPC command so Steam unhides main window from tray
+                spawn_detached_desktop_command(["steam", "steam://open/main"])
+                msg = "Focused Steam on your desktop, Master Ramos." if focused else "Launching Steam client on your desktop, Master Ramos."
+                return {"success": True, "message": msg}
             return open_local_file_or_dir(str(Path.home() / "Games"), "default")
         if key in ("code", "vscode"):
+            if not optional_path:
+                focused = focus_hyprland_window(["code", "com.microsoft.vscode"])
+                if focused:
+                    return {"success": True, "message": "Focused Visual Studio Code on your desktop, Master Ramos."}
             cmd = ["code", target_path] if optional_path else ["code"]
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            spawn_detached_desktop_command(cmd)
             return {"success": True, "message": "Opening Visual Studio Code on your desktop, Master Ramos."}
         if key in ("nautilus", "files", "computer", "explorer"):
+            if not optional_path or optional_path == str(Path.home()):
+                focused = focus_hyprland_window(["org.gnome.nautilus", "nautilus"])
+                if focused:
+                    return {"success": True, "message": "Focused file manager on your desktop, Master Ramos."}
             if shutil.which("nautilus"):
-                subprocess.Popen(["nautilus", target_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                spawn_detached_desktop_command(["nautilus", target_path])
             else:
-                subprocess.Popen(["xdg-open", target_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                spawn_detached_desktop_command(["xdg-open", target_path])
             return {"success": True, "message": f"Opening file manager at {Path(target_path).name or target_path}, Master Ramos."}
         if key in ("browser", "web", "zen", "zen-browser"):
+            focused = focus_hyprland_window(["zen", "zen-browser", "firefox", "brave-browser", "google-chrome", "chromium"])
+            if focused:
+                return {"success": True, "message": "Focused web browser on your desktop, Master Ramos."}
             for br in ("zen-browser", "brave-browser", "firefox", "google-chrome", "chromium"):
                 if shutil.which(br):
-                    subprocess.Popen([br], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    spawn_detached_desktop_command([br])
                     return {"success": True, "message": f"Launching {br} on your desktop, Master Ramos."}
         if key in ("terminal", "term", "foot", "shell"):
             for term in (["foot", "-D", target_path], ["kitty", "--directory", target_path], ["alacritty", "--working-directory", target_path]):
                 if shutil.which(term[0]):
-                    subprocess.Popen(term, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    spawn_detached_desktop_command(term)
                     return {"success": True, "message": "Opening terminal on your desktop, Master Ramos."}
         return open_local_file_or_dir(target_path, "default")
     except Exception as e:
         return {"success": False, "message": f"Failed to launch {app_key}: {e}"}
 
 
+def get_wireplumber_audio_status() -> dict:
+    vol_pct = 100
+    is_muted = False
+    sinks = []
+    try:
+        v_out = subprocess.check_output(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], text=True, timeout=2).strip()
+        m_vol = re.search(r"Volume:\s*([\d\.]+)", v_out)
+        if m_vol:
+            vol_pct = int(round(float(m_vol.group(1)) * 100))
+        is_muted = "[MUTED]" in v_out
+    except Exception:
+        pass
+
+    try:
+        s_out = subprocess.check_output(["wpctl", "status"], text=True, timeout=2)
+        in_sinks = False
+        for line in s_out.splitlines():
+            if "Sinks:" in line:
+                in_sinks = True
+                continue
+            if in_sinks:
+                if line.strip().startswith(("├─", "└─", "Audio", "Sources:", "Filters:", "Video", "Streams", "Settings")):
+                    in_sinks = False
+                    continue
+                m = re.search(r"([* ])\s*(\d+)\.\s+(.*?)\s+\[vol:\s*([\d\.]+)(?:\s+\[MUTED\])?\]", line)
+                if m:
+                    sinks.append({
+                        "id": int(m.group(2)),
+                        "name": m.group(3).strip(),
+                        "is_default": m.group(1) == "*",
+                        "volume": int(round(float(m.group(4)) * 100)),
+                        "muted": "[MUTED]" in line
+                    })
+    except Exception:
+        pass
+
+    return {"volume": vol_pct, "muted": is_muted, "sinks": sinks}
+
+
+def set_wireplumber_audio(action: str, value: Any = None) -> dict:
+    try:
+        if action == "set_volume":
+            vol_val = float(value)
+            if vol_val > 1.5:
+                vol_val = vol_val / 100.0
+            subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{vol_val:.2f}"], timeout=2, check=True)
+        elif action == "toggle_mute":
+            subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"], timeout=2, check=True)
+        elif action == "mute":
+            subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1"], timeout=2, check=True)
+        elif action == "unmute":
+            subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"], timeout=2, check=True)
+        elif action == "set_sink":
+            sink_id = str(value)
+            subprocess.run(["wpctl", "set-default", sink_id], timeout=2, check=True)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "status": get_wireplumber_audio_status()}
+
+
+def get_hyprland_status() -> dict:
+    clients = []
+    workspaces = []
+    try:
+        c_out = subprocess.check_output(["hyprctl", "clients", "-j"], text=True, timeout=2)
+        clients = json.loads(c_out)
+    except Exception:
+        pass
+    try:
+        w_out = subprocess.check_output(["hyprctl", "workspaces", "-j"], text=True, timeout=2)
+        workspaces = json.loads(w_out)
+    except Exception:
+        pass
+    return {"clients": clients, "workspaces": workspaces}
+
+
+def dispatch_hyprland(dispatcher: str, args: str = "") -> dict:
+    try:
+        cmd = ["hyprctl", "dispatch", str(dispatcher)]
+        if args:
+            cmd.append(str(args))
+        subprocess.run(cmd, timeout=2, check=True)
+        return {"ok": True, "dispatcher": dispatcher, "args": args}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def save_quick_note(content: str) -> dict:
+    try:
+        brain_dir = Path("/home/jmrd/.gemini/antigravity/scratch/alfred-batcomputer/second_brain")
+        brain_dir.mkdir(parents=True, exist_ok=True)
+        target_file = brain_dir / "quick_notes.md"
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        entry = f"\n\n### ⚡ Tactical Note — {ts}\n{content.strip()}\n"
+        if not target_file.exists():
+            target_file.write_text("# 🦇 Batcomputer Second Brain // Tactical Quick Notes\n" + entry, encoding="utf-8")
+        else:
+            with open(target_file, "a", encoding="utf-8") as f:
+                f.write(entry)
+        return {"ok": True, "file": "quick_notes.md"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def query_local_calendar_agenda() -> dict:
+    cal_file = Path("/home/jmrd/.gemini/antigravity/scratch/alfred-batcomputer/calendar.json")
+    if not cal_file.exists():
+        return {"events": [], "summary": "No calendar events loaded yet, Master Ramos."}
+    try:
+        events = json.loads(cal_file.read_text(encoding="utf-8"))
+        if not events:
+            return {"events": [], "summary": "Your tactical agenda is currently clear, Master Ramos."}
+        top = events[:3]
+        summaries = [f"{e.get('time', 'TBD')}: {e.get('title', 'Event')}" for e in top]
+        return {
+            "events": events,
+            "next_event": top[0] if top else None,
+            "summary": f"You have {len(events)} upcoming events, Master Ramos. Next: {', '.join(summaries)}."
+        }
+    except Exception as e:
+        return {"events": [], "summary": f"Could not read calendar: {e}"}
+
+
 def handle_local_voice_shortcut(low_dir: str) -> Optional[dict]:
-    """Allow voice commands for local hardware temps (GPU/CPU/NVMe/Fans) and opening local folders/apps."""
+    """Allow voice commands for local hardware temps, audio volume, hyprland workspaces, quick notes, and apps."""
     if any(k in low_dir for k in (
         "gpu", "cpu temp", "my temps", "pc temp", "hardware temp", "system temp",
         "how hot is my", "vram", "fan speed", "graphics card", "ryzen", "1080"
@@ -1028,6 +1266,69 @@ def handle_local_voice_shortcut(low_dir: str) -> Optional[dict]:
             f"NVMe is {th['nvme_temp_c']}°C, and chassis fans peak at {th['max_fan_rpm']} RPM, Master Ramos."
         )
         return {"reply": reply, "keep_desktop": True}
+
+    # Audio Control via WirePlumber
+    if any(k in low_dir for k in ("mute volume", "mute audio", "silence sound", "mute system")):
+        set_wireplumber_audio("mute")
+        return {"reply": "System audio muted, Master Ramos."}
+    if any(k in low_dir for k in ("unmute volume", "unmute audio", "restore sound", "unmute system")):
+        set_wireplumber_audio("unmute")
+        return {"reply": "System audio restored, Master Ramos."}
+    
+    m_vol = re.search(r"(?:set\s+)?volume\s+(?:to\s+)?(\d+)(?:\s*%)?", low_dir)
+    if m_vol:
+        v_num = int(m_vol.group(1))
+        set_wireplumber_audio("set_volume", v_num)
+        return {"reply": f"Master audio volume set to {v_num} percent, Master Ramos."}
+
+    if "switch audio to headphone" in low_dir or "switch sound to headphone" in low_dir or "audio to usb" in low_dir:
+        st = get_wireplumber_audio_status()
+        target_sink = next((s for s in st["sinks"] if "usb" in s["name"].lower() or "jieli" in s["name"].lower()), None)
+        if target_sink:
+            set_wireplumber_audio("set_sink", target_sink["id"])
+            return {"reply": f"Audio output switched to {target_sink['name']}, Master Ramos."}
+        return {"reply": "Switched audio output to default headphones, Master Ramos."}
+
+    if "switch audio to speaker" in low_dir or "switch audio to hdmi" in low_dir or "switch sound to monitor" in low_dir:
+        st = get_wireplumber_audio_status()
+        target_sink = next((s for s in st["sinks"] if "hdmi" in s["name"].lower() or "gp104" in s["name"].lower() or "rsgm" in s["name"].lower()), None)
+        if target_sink:
+            set_wireplumber_audio("set_sink", target_sink["id"])
+            return {"reply": f"Audio output switched to HDMI Monitor speakers, Master Ramos."}
+        return {"reply": "Switched audio output to HDMI display, Master Ramos."}
+
+    # Hyprland Workspace & Window Management
+    m_ws = re.search(r"(?:switch to\s+|go to\s+|workspace\s+)(\d+)", low_dir)
+    if m_ws:
+        ws_num = m_ws.group(1)
+        dispatch_hyprland("workspace", ws_num)
+        return {"reply": f"Switching to workspace {ws_num}, Master Ramos."}
+
+    if "toggle fullscreen" in low_dir or "go fullscreen" in low_dir or low_dir.strip() == "fullscreen":
+        dispatch_hyprland("fullscreen", "1")
+        return {"reply": "Toggling fullscreen on active window, Master Ramos."}
+
+    if any(k in low_dir for k in ("close window", "kill window", "close active", "kill active")):
+        dispatch_hyprland("killactive", "")
+        return {"reply": "Closing active application window, Master Ramos."}
+
+    if "split window" in low_dir or "toggle split" in low_dir:
+        dispatch_hyprland("togglesplit", "")
+        return {"reply": "Toggled window layout split orientation, Master Ramos."}
+
+    # Quick Note / Second Brain
+    for note_prefix in ("take a note", "note that", "remember that", "write down"):
+        if low_dir.startswith(note_prefix) or f" {note_prefix}" in low_dir:
+            idx = low_dir.find(note_prefix) + len(note_prefix)
+            note_text = low_dir[idx:].strip(" :,.-")
+            if note_text:
+                save_quick_note(note_text)
+                return {"reply": f"Note captured in your Second Brain vault: \"{note_text}\", Master Ramos."}
+
+    # Calendar / Schedule Query
+    if any(k in low_dir for k in ("what's on my agenda", "what is on my agenda", "my schedule", "upcoming meetings", "next meeting", "my calendar", "what do i have today")):
+        cal_data = query_local_calendar_agenda()
+        return {"reply": cal_data["summary"]}
 
     if not any(low_dir.startswith(prefix) or f" {prefix}" in low_dir for prefix in ("open ", "launch ", "start ", "browse ", "show my ")):
         return None
@@ -1078,7 +1379,10 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
             self.send_header("Access-Control-Allow-Private-Network", "true")
             self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         def do_OPTIONS(self):
             self._send_json({"ok": True})
@@ -1103,15 +1407,30 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
             # Proxy /api/* GET requests to the Mac Mini Batcomputer server so http://127.0.0.1:7778 is 100% self-contained
             if parsed.path.startswith("/api/"):
                 try:
-                    r = daemon.session.get(f"{daemon.server_url}{self.path}", timeout=12)
+                    fwd_headers = {}
+                    for h in ("authorization", "cookie", "content-type"):
+                        for kh, vh in self.headers.items():
+                            if kh.lower() == h:
+                                fwd_headers[kh] = vh
+                    if not any(k.lower() == "authorization" for k in fwd_headers) and daemon.auth_token:
+                        fwd_headers["Authorization"] = f"Bearer {daemon.auth_token}"
+                    r = daemon.session.get(f"{daemon.server_url}{self.path}", headers=fwd_headers, timeout=12)
                     self.send_response(r.status_code)
                     self.send_header("Content-Type", r.headers.get("Content-Type", "application/json"))
                     self.send_header("Content-Length", str(len(r.content)))
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
-                    self.wfile.write(r.content)
+                    try:
+                        self.wfile.write(r.content)
+                    except (BrokenPipeError, ConnectionResetError):
+                        return
+                except (BrokenPipeError, ConnectionResetError):
+                    return
                 except Exception as e:
-                    self._send_json({"error": str(e)}, status=502)
+                    try:
+                        self._send_json({"error": str(e)}, status=502)
+                    except Exception:
+                        pass
                 return
 
             if parsed.path == "/local/status":
@@ -1119,6 +1438,9 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                     "ok": True,
                     "host": socket.gethostname(),
                     "desktop_mode": _DESKTOP_MODE_ACTIVE,
+                    "state": daemon.current_state,
+                    "user_text": daemon.last_user_text,
+                    "reply_text": daemon.last_reply_text,
                     "hardware": get_local_host_hardware_telemetry(),
                     "disks": {
                         "root": get_local_disk_stats("/"),
@@ -1179,6 +1501,31 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                     self._send_json({"name": p.name, "path": str(p), "error": str(e), "content": ""})
                 return
 
+            if parsed.path == "/local/screenshot":
+                b64_img = daemon.capture_local_screen_b64()
+                if b64_img:
+                    self._send_json({
+                        "ok": True,
+                        "image": b64_img,
+                        "host": socket.gethostname(),
+                        "platform": sys.platform
+                    })
+                else:
+                    self._send_json({"ok": False, "error": "Screen capture failed on client"}, status=500)
+                return
+
+            if parsed.path == "/local/audio":
+                self._send_json(get_wireplumber_audio_status())
+                return
+
+            if parsed.path == "/local/hyprland":
+                self._send_json(get_hyprland_status())
+                return
+
+            if parsed.path == "/local/calendar":
+                self._send_json(query_local_calendar_agenda())
+                return
+
             self._send_json({"error": "Not found"}, status=404)
 
         def do_POST(self):
@@ -1190,18 +1537,73 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
             except Exception:
                 data = {}
 
+            if parsed.path.startswith("/api/"):
+                try:
+                    fwd_headers = {}
+                    for h in ("authorization", "cookie", "content-type"):
+                        for kh, vh in self.headers.items():
+                            if kh.lower() == h:
+                                fwd_headers[kh] = vh
+                    if not any(k.lower() == "authorization" for k in fwd_headers) and daemon.auth_token:
+                        fwd_headers["Authorization"] = f"Bearer {daemon.auth_token}"
+                    r = daemon.session.post(
+                        f"{daemon.server_url}{self.path}",
+                        data=raw_body.encode("utf-8") if isinstance(raw_body, str) else raw_body,
+                        headers=fwd_headers,
+                        timeout=30
+                    )
+                    self.send_response(r.status_code)
+                    self.send_header("Content-Type", r.headers.get("Content-Type", "application/json"))
+                    self.send_header("Content-Length", str(len(r.content)))
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    try:
+                        self.wfile.write(r.content)
+                    except (BrokenPipeError, ConnectionResetError):
+                        return
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except Exception as e:
+                    try:
+                        self._send_json({"error": str(e)}, status=502)
+                    except Exception:
+                        pass
+                return
+
             if parsed.path == "/local/open":
                 res = open_local_file_or_dir(data.get("path", ""), data.get("app", "default"))
-                if res.get("success"):
-                    daemon.emit_ui(desktop_toggle="off")
                 self._send_json(res)
                 return
 
             if parsed.path == "/local/launch":
                 res = launch_local_desktop_application(data.get("app", ""), data.get("path", ""))
-                if res.get("success"):
-                    daemon.emit_ui(desktop_toggle="off")
                 self._send_json(res)
+                return
+
+            if parsed.path == "/local/audio":
+                res = set_wireplumber_audio(data.get("action", ""), data.get("value"))
+                self._send_json(res)
+                return
+
+            if parsed.path == "/local/hyprland/dispatch":
+                res = dispatch_hyprland(data.get("dispatcher", "workspace"), data.get("args", "1"))
+                self._send_json(res)
+                return
+
+            if parsed.path == "/local/note":
+                res = save_quick_note(data.get("content", ""))
+                self._send_json(res)
+                return
+
+            if parsed.path in ("/local/talk", "/local/listen"):
+                daemon.trigger_push_to_talk()
+                self._send_json({"ok": True, "state": "LISTENING"})
+                return
+
+            if parsed.path == "/local/companion":
+                action = data.get("action", "show")
+                daemon.emit_ui(companion_action=action)
+                self._send_json({"ok": True, "action": action})
                 return
 
             if parsed.path == "/local/desktop-mode":
@@ -1209,6 +1611,19 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                 daemon.emit_ui(desktop_toggle=action)
                 time.sleep(0.08)
                 self._send_json({"ok": True, "desktop_mode": _DESKTOP_MODE_ACTIVE})
+                return
+
+            if parsed.path == "/local/screenshot":
+                b64_img = daemon.capture_local_screen_b64()
+                if b64_img:
+                    self._send_json({
+                        "ok": True,
+                        "image": b64_img,
+                        "host": socket.gethostname(),
+                        "platform": sys.platform
+                    })
+                else:
+                    self._send_json({"ok": False, "error": "Screen capture failed on client"}, status=500)
                 return
 
             self._send_json({"error": "Unknown endpoint"}, status=404)
@@ -1234,10 +1649,13 @@ def configure_hyprland_overlay_rules():
         "pin,title:^(Puter // BCv1.2 Companion)$",
         "move 100%-435 42,title:^(Puter // BCv1.2 Companion)$",
         "size 420 265,title:^(Puter // BCv1.2 Companion)$",
-        "fullscreen,title:^(Puter // BCv1.2 Desktop Shell.*)$",
+        # True Desktop Background rules: Floating, pinned, no border, no shadow, never tile
+        "float,title:^(Puter // BCv1.2 Desktop Shell.*)$",
         "pin,title:^(Puter // BCv1.2 Desktop Shell.*)$",
         "noborder,title:^(Puter // BCv1.2 Desktop Shell.*)$",
         "noshadow,title:^(Puter // BCv1.2 Desktop Shell.*)$",
+        "noinitialfocus,title:^(Puter // BCv1.2 Desktop Shell.*)$",
+        "focusonactivate false,title:^(Puter // BCv1.2 Desktop Shell.*)$",
     ]
     for r in rules:
         try:
@@ -1294,6 +1712,77 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
 
     desktop_shells = []
 
+    def _start_hyprland_desktop_watcher():
+        """
+        Watches Hyprland IPC socket2 in real-time.
+        When user switches to an empty workspace (or has no window covering the monitor),
+        wakes up the Batcomputer HUD on that monitor's desktop.
+        When user opens or switches to an application window, puts HUD to sleep immediately.
+        """
+        def _watcher_loop():
+            sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+            runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+            sock_path = f"{runtime}/hypr/{sig}/.socket2.sock" if sig else None
+            if not sock_path or not os.path.exists(sock_path):
+                candidates = list(Path(f"{runtime}/hypr").glob("*/.socket2.sock"))
+                if candidates:
+                    sock_path = str(candidates[0])
+
+            if not sock_path or not os.path.exists(sock_path):
+                return
+
+            last_states = {}
+
+            def evaluate_desktop():
+                nonlocal last_states
+                try:
+                    mons_raw = subprocess.check_output(["hyprctl", "monitors", "-j"], timeout=1).decode("utf-8")
+                    mons = json.loads(mons_raw)
+                    ws_raw = subprocess.check_output(["hyprctl", "workspaces", "-j"], timeout=1).decode("utf-8")
+                    workspaces = {w["id"]: w for w in json.loads(ws_raw)}
+                    act_win_raw = subprocess.check_output(["hyprctl", "activewindow", "-j"], timeout=1).decode("utf-8")
+                    act_win = json.loads(act_win_raw)
+                    has_active_window = bool(act_win.get("address"))
+
+                    for m in mons:
+                        m_name = m["name"]
+                        ws_id = m.get("activeWorkspace", {}).get("id")
+                        ws_info = workspaces.get(ws_id, {"windows": 0})
+                        # Desktop exposed: workspace has 0 client windows, OR this monitor is focused with no active window
+                        is_desktop = (ws_info.get("windows", 0) == 0) or (m.get("focused") and not has_active_window)
+
+                        if last_states.get(m_name) != is_desktop:
+                            last_states[m_name] = is_desktop
+                            print(f"🖥️ [Desktop Auto-Wake]: Monitor {m_name} -> {'WAKE (Desktop)' if is_desktop else 'SLEEP (App Active)'}")
+                            daemon.emit_ui(auto_desktop_wake={"monitor": m_name, "state": is_desktop})
+                except Exception:
+                    pass
+
+            time.sleep(1.0)
+            evaluate_desktop()
+
+            while daemon.running:
+                try:
+                    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    s.connect(sock_path)
+                    buf = ""
+                    while daemon.running:
+                        chunk = s.recv(2048).decode("utf-8", errors="ignore")
+                        if not chunk:
+                            break
+                        buf += chunk
+                        while "\n" in buf:
+                            line, buf = buf.split("\n", 1)
+                            if any(ev in line for ev in ("workspace>>", "workspacev2>>", "focusedmon>>", "activewindow>>", "activewindowv2>>", "closewindow>>", "openwindow>>")):
+                                time.sleep(0.04)
+                                evaluate_desktop()
+                except Exception:
+                    time.sleep(2)
+                    continue
+
+        t = threading.Thread(target=_watcher_loop, daemon=True)
+        t.start()
+
     # Full-Screen Dual/Multi-Monitor BCv1.2 Desktop Override Window (QWebEngineView)
     class DesktopShellWindow(QWidget):
         def __init__(self, target_url: str, screen):
@@ -1302,7 +1791,8 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
             s_name = screen.name()
             self.setWindowTitle(f"Puter // BCv1.2 Desktop Shell - {s_name}")
             self.setWindowIcon(bat_icon)
-            self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+            self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+            self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
             self.setStyleSheet("background-color: #01060d; border: none;")
 
             self.setScreen(screen)
@@ -1320,8 +1810,9 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                     settings = self.web.settings()
                     settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
                     settings.setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)
-                    # Load directly from the local bridge with screen identifier
-                    local_shell_url = f"http://127.0.0.1:{LOCAL_BRIDGE_PORT}/?desktop=1&screen={s_name}"
+                    # Load directly from the local bridge with screen identifier and auth token
+                    token_arg = f"&token={daemon.auth_token}" if hasattr(daemon, "auth_token") and daemon.auth_token else ""
+                    local_shell_url = f"http://127.0.0.1:{LOCAL_BRIDGE_PORT}/?desktop=1&screen={s_name}{token_arg}"
                     self.web.setUrl(QUrl(local_shell_url))
                     lyt.addWidget(self.web)
                 except Exception as e:
@@ -1347,10 +1838,29 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                     s.hide_desktop_shell()
 
         def show_desktop_shell(self):
+            geom = self.screen_obj.geometry()
             self.setScreen(self.screen_obj)
-            self.setGeometry(self.screen_obj.geometry())
-            self.showFullScreen()
-            self.raise_()
+            self.setGeometry(geom)
+            self.show()
+            self.lower()
+            s_name = self.screen_obj.name()
+            try:
+                # Push this desktop shell to the bottom of the Hyprland z-order below all normal apps
+                lua_cmd = f'hl.dispatch(hl.dsp.window.alter_zorder({{ mode = "bottom", match = {{ title = "^Puter // BCv1\\\\.2 Desktop Shell - {s_name}$" }} }}))'
+                subprocess.run(["hyprctl", "eval", lua_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+            except Exception:
+                pass
+
+        def changeEvent(self, event):
+            super().changeEvent(event)
+            if self.isActiveWindow():
+                self.lower()
+                try:
+                    s_name = self.screen_obj.name()
+                    lua_cmd = f'hl.dispatch(hl.dsp.window.alter_zorder({{ mode = "bottom", match = {{ title = "^Puter // BCv1\\\\.2 Desktop Shell - {s_name}$" }} }}))'
+                    subprocess.run(["hyprctl", "eval", lua_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+                except Exception:
+                    pass
 
         def hide_desktop_shell(self):
             self.hide()
@@ -1365,8 +1875,8 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
             self.setWindowTitle("Puter // BCv1.2 Companion")
             self.setWindowIcon(bat_icon)
             self.setWindowFlags(
-                Qt.WindowType.WindowStaysOnTopHint
-                | Qt.WindowType.Tool
+                Qt.WindowType.Window
+                | Qt.WindowType.WindowStaysOnTopHint
             )
             self.setFixedSize(420, 265)
             self._drag_pos = None
@@ -1553,6 +2063,39 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                 _DESKTOP_MODE_ACTIVE = False
 
         def handle_event(self, ev: dict):
+            if "auto_desktop_wake" in ev:
+                wake_info = ev["auto_desktop_wake"]
+                target_mon = wake_info.get("monitor")
+                is_wake = wake_info.get("state")
+                for s in desktop_shells:
+                    s_name = s.screen_obj.name()
+                    if target_mon == "all" or s_name == target_mon:
+                        if is_wake and not s.isVisible():
+                            s.show_desktop_shell()
+                        elif not is_wake and s.isVisible():
+                            s.hide_desktop_shell()
+                any_vis = any(s.isVisible() for s in desktop_shells)
+                if any_vis:
+                    self.desktop_btn.setText("🖥️ EXIT DESK")
+                    self.desktop_btn.setStyleSheet("background-color: rgba(0,255,136,0.28); color: #00ff88; border-color: #00ff88;")
+                else:
+                    self.desktop_btn.setText("🖥️ DESKTOP")
+                    self.desktop_btn.setStyleSheet("border-color: #00ff88; color: #00ff88;")
+            if "companion_action" in ev:
+                act = ev["companion_action"]
+                if act == "show":
+                    self.show()
+                    self.raise_()
+                    self.activateWindow()
+                elif act == "hide":
+                    self.hide()
+                elif act == "toggle":
+                    if self.isVisible():
+                        self.hide()
+                    else:
+                        self.show()
+                        self.raise_()
+                        self.activateWindow()
             if "desktop_toggle" in ev:
                 act = ev["desktop_toggle"]
                 if act == "on":
@@ -1633,6 +2176,10 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
     tray.activated.connect(lambda reason: win.show() if not win.isVisible() else win.hide())
     tray.show()
 
+    # Auto-wake Batcomputer Desktop HUD whenever an empty workspace/desktop is active
+    if os.environ.get("WAYLAND_DISPLAY"):
+        _start_hyprland_desktop_watcher()
+
     if start_in_desktop_mode:
         win.toggle_desktop_override(force_state="on")
 
@@ -1666,17 +2213,38 @@ def launch_frameless_hud_window(hud_url: str):
         subprocess.Popen(["xdg-open", hud_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+_INSTANCE_LOCK_FD = None
+
+def acquire_single_instance_lock() -> bool:
+    """Enforce a strict single-instance lock across the system to prevent dual voice listeners/speakers."""
+    global _INSTANCE_LOCK_FD
+    lock_file = Path(tempfile.gettempdir()) / "alfred_batcomputer_daemon.lock"
+    try:
+        _INSTANCE_LOCK_FD = open(lock_file, "w")
+        fcntl.flock(_INSTANCE_LOCK_FD, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _INSTANCE_LOCK_FD.write(f"{os.getpid()}\n")
+        _INSTANCE_LOCK_FD.flush()
+        return True
+    except (BlockingIOError, OSError):
+        return False
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="'Puter // Alfred BCv1.2 Native Desktop Override & Background Voice Daemon")
     parser.add_argument("--server", default=DEFAULT_SERVER_URL, help="Batcomputer backend URL")
     parser.add_argument("--hud-url", default=DEFAULT_HUD_URL, help="Batcomputer HTTPS HUD URL")
     parser.add_argument("--always", action="store_true", help="Treat every utterance as a command without needing 'Computer'/'Puter' wake word")
     parser.add_argument("--desktop", action="store_true", help="Override the full desktop with the BCv1.2 Shell window on startup")
-    parser.add_argument("--hud", action="store_true", help="Also launch frameless full BCv1.2 Web HUD desktop window")
+    parser.add_argument("--hud", action="store_true", help="Alias for --desktop")
     parser.add_argument("--no-gui", action="store_true", help="Run headless in terminal (desktop notifications still active)")
     parser.add_argument("--no-notify", action="store_true", help="Disable OS desktop notifications")
     parser.add_argument("--briefing", action="store_true", help="Trigger proactive JARVIS briefing immediately on startup")
+    parser.add_argument("--daemon", action="store_true", help="Run under systemd background daemon service")
     args = parser.parse_args()
+
+    if not acquire_single_instance_lock():
+        print("🦇 ['Puter Notice]: Another instance of Batcomputer daemon is already active. Exiting duplicate process to prevent double voice responses.")
+        sys.exit(0)
 
     daemon = AlfredBackgroundDaemon(
         server_url=args.server,
@@ -1691,7 +2259,7 @@ if __name__ == "__main__":
         def _run_startup_briefing():
             time.sleep(1.2)
             try:
-                b = requests.get(f"{args.server.rstrip('/')}/api/briefing?skip_tts=false", timeout=12).json()
+                b = daemon.session.get(f"{daemon.server_url}/api/briefing?skip_tts=false", timeout=12).json()
                 reply = b.get("reply", "")
                 print(f"🌅 [Briefing]: {reply}")
                 daemon.emit_ui(state="SPEAKING", user_text="Morning Briefing", reply_text=reply)
