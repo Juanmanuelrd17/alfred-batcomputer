@@ -2,7 +2,7 @@
   {
     "id": "mem_1",
     "category": "Identity & Persona",
-    "fact": "User is Juan Manuel Ramos Diaz (always address him as Master Ramos, Master Juan, or Master Remmy — NEVER Master Wayne). You are 'Puter (the Batcomputer), his ultra-fast front-line AI.",
+    "fact": "User is Juan Manuel Ramos Diaz (always address him as Master Ramos, Master Juan, or Master Remmy \u2014 NEVER Master Wayne or Bruce). You are 'Puter (the Batcomputer), his ultra-fast front-line AI.",
     "timestamp": "2026-11-01 00:25"
   },
   {
@@ -22,5 +22,43 @@
     "category": "Preferences",
     "fact": "Wake words are 'Computer', 'Puter', 'Hey Computer', and 'Hey Puter'. Prefers brisk, direct tactical responses under 25 words and sub-second voice execution.",
     "timestamp": "2026-11-01 00:25"
+  },
+  {
+    "id": "mem_5",
+    "category": "Hardware & Monitors",
+    "fact": "Desktop hardware setup includes dual displays: primary high-refresh 144Hz screen (DP-1) for gaming/productivity and secondary 60Hz display (DP-2) for the Batcomputer companion HUD.",
+    "timestamp": "2026-11-03 04:30"
+  },
+  {
+    "id": "mem_6",
+    "category": "Audio & Chime Preference",
+    "fact": "Uses a Razer Barracuda headset microphone. Audio acknowledgment chimes should strictly sound ONLY when the wake word 'Hey Computer' / 'Computer' is detected, never on background noise or spurious room sounds.",
+    "timestamp": "2026-11-03 04:35"
+  },
+  {
+    "id": "mem_7",
+    "category": "Academics & Projects",
+    "fact": "Enrolled in CSE 1321 computer science coursework; homelab includes Anycubic Kobra 3D printer controlled via Home Assistant.",
+    "timestamp": "2026-11-03 04:40"
+  },
+  {
+    "id": "mem_16980d",
+    "category": "Project",
+    "fact": "CSE 1321 lab: Python binary search tree visualizer using Pygame",
+    "timestamp": "2026-11-03 12:07"
+  },
+  {
+    "id": "mem_5b298f",
+    "category": "Project",
+    "fact": "Master Ramos is taking CSE 1321 and designing a Python binary search tree visualizer using Pygame for his lab.",
+    "timestamp": "2026-11-03 12:07",
+    "source": "autonomous_learning"
+  },
+  {
+    "id": "mem_d4924c",
+    "category": "Project",
+    "fact": "Master Ramos is building a Python binary search tree visualizer using Pygame for his lab.",
+    "timestamp": "2026-11-03 12:07",
+    "source": "autonomous_learning"
   }
 ]

@@ -20,14 +20,17 @@ import asyncio
 import uuid
 import re
 import subprocess
+import threading
 import imaplib
 import email
 from email.header import decode_header
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import urllib.request
 import urllib.parse
 import requests
+import hashlib
+import secrets
 
 # Ensure Homebrew and Hermes binaries (ffmpeg, node, hermes, etc.) are on PATH for mlx_whisper & subprocesses
 os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/Users/jmrd/.local/bin:/Users/jmrd/.hermes/bin:" + os.environ.get("PATH", "")
@@ -48,7 +51,87 @@ CALENDAR_CONFIG_FILE = BASE_DIR / "calendar_config.json"
 CUSTOM_VOICES_FILE = BASE_DIR / "custom_voices.json"
 MEMORY_FILE = BASE_DIR / "memory.json"
 HISTORY_FILE = BASE_DIR / "chat_history.json"
+SUMMARY_FILE = BASE_DIR / "conversation_summary.json"
 TOOLS_CONFIG_FILE = BASE_DIR / "tools_config.json"
+AUTH_CONFIG_FILE = BASE_DIR / "auth_config.json"
+
+ACTIVE_SESSIONS: Dict[str, Dict[str, Any]] = {}
+
+def get_auth_config() -> dict:
+    default_config = {
+        "auth_enabled": True,
+        "username": "admin",
+        "passcode": "batcomputer2026",
+        "salt": "wayne_tech_salt_2026",
+        "passcode_hash": "e8929700e73146971eda1fa07817c42277f9b5bae9413e3a9692c9091f7d7a81",
+        "daemon_token": "wayne-tech-daemon-7f91a0b3e218c54d193d0498a54687bb",
+        "session_lifetime_sec": 2592000
+    }
+    if not AUTH_CONFIG_FILE.exists():
+        try:
+            AUTH_CONFIG_FILE.write_text(json.dumps(default_config, indent=2), encoding="utf-8")
+            return default_config
+        except Exception as e:
+            print(f"[AUTH] Could not write default auth_config.json: {e}")
+            return default_config
+    try:
+        cfg = json.loads(AUTH_CONFIG_FILE.read_text(encoding="utf-8"))
+        changed = False
+        if "daemon_token" not in cfg:
+            cfg["daemon_token"] = "wayne-tech-daemon-" + secrets.token_hex(16)
+            changed = True
+        if "passcode_hash" not in cfg and "passcode" in cfg:
+            salt = cfg.get("salt", "wayne_tech_salt_2026")
+            cfg["passcode_hash"] = hashlib.sha256(f"{salt}:{cfg['passcode']}".encode()).hexdigest()
+            changed = True
+        if changed:
+            try:
+                AUTH_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+        return cfg
+    except Exception as e:
+        print(f"[AUTH] Error reading auth config: {e}")
+        return default_config
+
+def verify_token(token: Optional[str]) -> bool:
+    if not token:
+        return False
+    cfg = get_auth_config()
+    if not cfg.get("auth_enabled", True):
+        return True
+    
+    daemon_token = cfg.get("daemon_token")
+    if daemon_token and token == daemon_token:
+        return True
+        
+    now = time.time()
+    if token in ACTIVE_SESSIONS:
+        sess = ACTIVE_SESSIONS[token]
+        lifetime = cfg.get("session_lifetime_sec", 2592000)
+        if now - sess.get("created_at", 0) < lifetime:
+            return True
+        else:
+            try:
+                del ACTIVE_SESSIONS[token]
+            except KeyError:
+                pass
+            
+    return False
+
+def verify_password(password: str) -> bool:
+    cfg = get_auth_config()
+    if not cfg.get("auth_enabled", True):
+        return True
+    if cfg.get("passcode") and password == cfg.get("passcode"):
+        return True
+    salt = cfg.get("salt", "wayne_tech_salt_2026")
+    input_hash = hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
+    if cfg.get("passcode_hash") and input_hash == cfg.get("passcode_hash"):
+        return True
+    if cfg.get("passcode_hash") and hashlib.sha256(password.encode()).hexdigest() == cfg.get("passcode_hash"):
+        return True
+    return False
 
 AUDIO_CACHE.mkdir(exist_ok=True)
 BRAIN_DIR.mkdir(exist_ok=True)
@@ -58,7 +141,7 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 START_TIME = time.time()
 
 # Configurable State
-CURRENT_MODEL = "no-think/kr/claude-haiku-4.5"
+CURRENT_MODEL = "antigravity/gemini-3.1-flash-lite"
 CURRENT_VOICE = "daniel"  # Default: Daniel (Ultra-fast 0.3s macOS British Butler)
 
 # Persistent HTTP session for connection pooling (saves TCP handshake latency to ZimaOS & HA)
@@ -93,6 +176,47 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def batcomputer_auth_gate(request: Request, call_next):
+    # Allow CORS preflight requests without authentication
+    if request.method == "OPTIONS":
+        return await call_next(request)
+        
+    path = request.url.path
+    
+    # Whitelist public HUD frontend, static assets, manifest, PWA sw, and auth endpoints
+    if (
+        path == "/" or
+        path.startswith("/static/") or
+        path in ("/manifest.json", "/sw.js", "/favicon.ico", "/api/auth/login", "/api/auth/status")
+    ):
+        return await call_next(request)
+        
+    # Extract token from Header, Cookie, or Query Parameter
+    token = None
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+    elif request.headers.get("x-batcomputer-token") or request.headers.get("X-Batcomputer-Token"):
+        token = (request.headers.get("x-batcomputer-token") or request.headers.get("X-Batcomputer-Token")).strip()
+        
+    if not token and "bat_session" in request.cookies:
+        token = request.cookies.get("bat_session")
+        
+    if not token:
+        token = request.query_params.get("token")
+        
+    if verify_token(token):
+        return await call_next(request)
+        
+    return JSONResponse(
+        status_code=401,
+        content={
+            "detail": "WAYNE ENTERPRISES // Security Clearance Required. Please log in.",
+            "authenticated": False
+        }
+    )
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -324,16 +448,15 @@ def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> str:
 
 
 # ==========================================
-# BRAIN: OMNIROUTE (ANTIGRAVITY) & OLLAMA (LOCAL)
+# BRAIN: OMNIROUTE (ANTIGRAVITY GEMINI FRONTIER)
 # ==========================================
 
 def is_omniroute_model(model_name: str) -> bool:
-    m = model_name.lower()
-    return any(k in m for k in ["antigravity", "omniroute", "claude", "gemini", "gpt", "kr/", "kiro/", "no-think/", "minimax", "deepseek"])
+    return True
 
 
 def query_omniroute(messages: List[Dict[str, str]], model: str = "antigravity/gemini-3.1-flash-lite") -> str:
-    """Query OmniRoute proxy (Antigravity frontier models) with persistent keep-alive pooling"""
+    """Query OmniRoute proxy (Antigravity Gemini models) with persistent keep-alive pooling"""
     try:
         resp = HTTP_SESSION.post(
             f"{OMNIROUTE_URL}/chat/completions",
@@ -364,39 +487,10 @@ def query_omniroute(messages: List[Dict[str, str]], model: str = "antigravity/ge
         return "I apologize, Master Ramos. The OmniRoute Antigravity neural link experienced an uplink interruption."
 
 
-def query_ollama(messages: List[Dict[str, str]], model: Optional[str] = None) -> str:
-    """Query local Ollama instance with low latency"""
-    active_model = model or "qwen2.5:7b"
-    payload = json.dumps({
-        "model": active_model,
-        "messages": messages,
-        "stream": False,
-        "options": {
-            "temperature": 0.6,
-            "num_predict": 250
-        }
-    }).encode("utf-8")
-    
-    req = urllib.request.Request(
-        f"{OLLAMA_URL}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=45) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data.get("message", {}).get("content", "").strip()
-    except Exception as e:
-        print(f"Ollama inference error: {e}", file=sys.stderr)
-        return "I apologize, Master Ramos. The local neural brain experienced a momentary pipeline hiccup."
-
-
 def query_brain(messages: List[Dict[str, str]], model: Optional[str] = None) -> str:
-    """Intelligently route to OmniRoute (Antigravity) or Local Ollama based on selected model"""
+    """Route directly to OmniRoute Antigravity Gemini frontier neural core"""
     active_model = model or CURRENT_MODEL
-    if is_omniroute_model(active_model):
-        return query_omniroute(messages, active_model)
-    return query_ollama(messages, active_model)
+    return query_omniroute(messages, active_model)
 
 
 def get_second_brain_summary() -> str:
@@ -486,6 +580,192 @@ def save_chat_history(history: List[Dict[str, str]]):
 
 def clear_chat_history():
     HISTORY_FILE.write_text("[]", encoding="utf-8")
+    if SUMMARY_FILE.exists():
+        try:
+            SUMMARY_FILE.unlink()
+        except Exception:
+            pass
+
+
+def get_running_session_summary() -> str:
+    """
+    Load the persistent rolling summary if it exists to maintain long-term context.
+    """
+    if SUMMARY_FILE.exists():
+        try:
+            data = json.loads(SUMMARY_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("summary"):
+                ts = data.get("timestamp", "")
+                prefix = f"RUNNING SESSION CONTEXT ({ts})" if ts else "RUNNING SESSION CONTEXT"
+                return f"{prefix}:\n{data.get('summary')}"
+        except Exception:
+            pass
+    return ""
+
+
+def execute_llm_memory_tags(reply: str) -> Tuple[str, List[Dict[str, str]]]:
+    """
+    Parse [MEMORY_ADD: <category> | <fact>] emitted directly by the LLM,
+    store in memory.json, and strip from the spoken response.
+    """
+    actions = []
+    pattern = re.compile(r'\[MEMORY_ADD:\s*([^|]+)\|\s*([^\]]+)\]', re.IGNORECASE)
+    matches = list(pattern.finditer(reply))
+    for m in matches:
+        cat = m.group(1).strip().capitalize()
+        fact = m.group(2).strip()
+        if fact and len(fact) > 3:
+            add_memory_fact(fact, category=cat)
+            actions.append({"category": cat, "fact": fact})
+            print(f"🧠 [Direct LLM Memory Tag]: [{cat}] {fact}")
+    clean_reply = pattern.sub('', reply).strip()
+    return clean_reply, actions
+
+
+def get_relevant_second_brain_context(query: str) -> str:
+    """
+    Retrieve relevant notes or quick notes from second_brain/*.md matching query keywords.
+    """
+    if not BRAIN_DIR.exists():
+        return ""
+    words = [w.lower() for w in re.findall(r'\b[a-zA-Z0-9_-]{3,}\b', query) if w.lower() not in ("what", "when", "where", "how", "the", "and", "can", "you", "tell", "please", "puter", "computer", "hey")]
+    snippets = []
+
+    # Always check quick_notes.md for recent captures
+    qn = BRAIN_DIR / "quick_notes.md"
+    if qn.exists():
+        try:
+            lines = [l.strip() for l in qn.read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")]
+            if lines:
+                snippets.append("[quick_notes.md]: " + " | ".join(lines[-4:]))
+        except Exception:
+            pass
+
+    if words:
+        for f in BRAIN_DIR.glob("*.md"):
+            if f.name == "quick_notes.md":
+                continue
+            try:
+                content = f.read_text(encoding="utf-8")
+                matched_lines = []
+                for line in content.splitlines():
+                    if any(w in line.lower() for w in words):
+                        matched_lines.append(line.strip())
+                if matched_lines:
+                    snippets.append(f"[{f.name}]: " + " | ".join(matched_lines[:3]))
+            except Exception:
+                pass
+
+    return "\n".join(snippets[:4])
+
+
+def update_conversation_summary_async(history: List[Dict[str, str]]):
+    """
+    Summarize past conversational turns into a concise situational context
+    so 'Puter retains context across long sessions beyond the rolling window.
+    """
+    try:
+        dialogue = "\n".join([f"{h['role'].upper()}: {h['content']}" for h in history[-16:]])
+        prompt = f"""Summarize the key events, topics, and actions taken in this ongoing conversation in 2-3 concise sentences:
+{dialogue}
+
+Focus on: what the user is working on, commands recently executed, devices toggled, and current user focus.
+Output ONLY the 2-3 sentence summary."""
+
+        summary_text = query_brain([
+            {"role": "system", "content": "You are a concise conversation summarizer."},
+            {"role": "user", "content": prompt}
+        ], model="antigravity/gemini-3.1-flash-lite").strip()
+
+        if summary_text:
+            SUMMARY_FILE.write_text(json.dumps({
+                "summary": summary_text,
+                "timestamp": time.strftime("%Y-%m-%d %H:%M")
+            }, indent=2), encoding="utf-8")
+            print(f"📝 [Updated Session Summary]: {summary_text[:80]}...")
+    except Exception as e:
+        print(f"[Summary Update Error]: {e}", file=sys.stderr)
+
+
+def extract_and_learn_memories_async(user_message: str, reply: str):
+    """
+    Background worker that runs after each conversational turn.
+    Uses OmniRoute Gemini Flash to extract persistent user facts, preferences,
+    habits, ongoing projects, or corrections from the conversation turn and
+    appends them to memory.json if novel.
+    """
+    try:
+        clean_user = user_message.strip()
+        if len(clean_user) < 5 or clean_user.lower() in ("hi", "hello", "hey", "bye", "goodbye", "thanks", "thank you", "ok", "okay"):
+            return
+
+        extract_prompt = f"""You are the long-term memory engine for 'Puter (the Batcomputer).
+Analyze this interaction between User (Master Ramos) and 'Puter:
+User: "{user_message}"
+'Puter: "{reply}"
+
+Identify if the user stated or revealed any persistent knowledge, such as:
+- Personal identity, habits, schedule, relationships, or university/classes (e.g. CSE 1321).
+- Work, coding, 3D printing, or project state (e.g. Anycubic Kobra, OpenGrid hooks).
+- Hardware, monitor, gaming, or smart home preferences (e.g. Razer Barracuda mic, 144Hz screen, chime preferences).
+- User corrections (e.g. "no, I meant X", "don't do Y", "call me Z").
+
+Rules:
+- DO NOT record trivial transient commands (e.g. "turn on the light", "play music", "what time is it").
+- DO NOT duplicate existing known facts.
+- Keep facts crisp, factual, and 1 sentence.
+- Output ONLY a JSON array of objects: [{{"fact": "...", "category": "Identity|Preference|Project|Correction|Hardware|Habit"}}]
+- If no persistent knowledge was shared, output []."""
+
+        raw = query_brain([
+            {"role": "system", "content": "You are a memory extractor. Output only valid JSON or []."},
+            {"role": "user", "content": extract_prompt}
+        ], model="antigravity/gemini-3.1-flash-lite")
+
+        clean_json = raw.strip()
+        if clean_json.startswith("```"):
+            clean_json = re.sub(r"^```(?:json)?\s*", "", clean_json)
+            clean_json = re.sub(r"\s*```$", "", clean_json)
+
+        extracted = json.loads(clean_json)
+        if not isinstance(extracted, list):
+            return
+
+        mems = load_memories()
+        existing_facts_lower = [m.get("fact", "").lower() for m in mems]
+        added_any = False
+
+        for item in extracted:
+            fact = (item.get("fact") or "").strip()
+            cat = (item.get("category") or "General").capitalize()
+            if not fact or len(fact) < 5:
+                continue
+
+            fact_lower = fact.lower()
+            if any(fact_lower in ef or ef in fact_lower for ef in existing_facts_lower):
+                continue
+
+            mem_entry = {
+                "id": f"mem_{uuid.uuid4().hex[:6]}",
+                "category": cat,
+                "fact": fact,
+                "timestamp": time.strftime("%Y-%m-%d %H:%M"),
+                "source": "autonomous_learning"
+            }
+            mems.append(mem_entry)
+            existing_facts_lower.append(fact_lower)
+            added_any = True
+            print(f"🧠 [Auto-Learned Memory]: [{cat}] {fact}")
+
+        if added_any:
+            save_memories(mems)
+
+        hist = load_chat_history()
+        if len(hist) >= 10 and len(hist) % 4 == 0:
+            update_conversation_summary_async(hist)
+
+    except Exception as e:
+        print(f"[Memory Extraction Error]: {e}", file=sys.stderr)
 
 
 # ==========================================
@@ -731,31 +1011,33 @@ def call_hass_tv(action: str) -> Dict[str, Any]:
 
 
 # ==========================================
-# PERSONAL CALENDAR & ICAL SYNC ENGINE
+# PERSONAL CALENDAR & DUAL ICAL SYNC ENGINE (ICLOUD & GOOGLE CALENDAR)
 # ==========================================
-def parse_ics_text(ics_text: str) -> List[Dict[str, Any]]:
+def parse_ics_text(ics_text: str, source_label: str = "Personal") -> List[Dict[str, Any]]:
     events = []
     vevents = re.findall(r'BEGIN:VEVENT(.*?)END:VEVENT', ics_text, re.DOTALL)
     for v in vevents:
         summary_m = re.search(r'SUMMARY:(.*)', v)
-        summary = summary_m.group(1).strip() if summary_m else 'Personal Event'
-        summary = summary.replace(r'\,', ',').replace(r'\;', ';')
+        summary = summary_m.group(1).strip() if summary_m else 'Calendar Event'
+        summary = summary.replace(r'\,', ',').replace(r'\;', ';').replace(r'\n', ' ').strip()
         
         start_m = re.search(r'DTSTART(?:;[^:]+)?:(\d+T\d+Z?|\d+)', v)
         start_raw = start_m.group(1).strip() if start_m else ''
         
         loc_m = re.search(r'LOCATION:(.*)', v)
-        loc = loc_m.group(1).strip() if loc_m else 'Personal Location'
-        loc = loc.replace(r'\,', ',').replace(r'\;', ';')
+        loc = loc_m.group(1).strip() if loc_m else ''
+        loc = loc.replace(r'\,', ',').replace(r'\;', ';').replace(r'\n', ' ').strip()
         
         time_str = 'All Day'
         date_str = 'Upcoming'
+        sort_key = '9999-99-99 99:99'
         if 'T' in start_raw:
             try:
                 from datetime import datetime
                 dt = datetime.strptime(start_raw[:15], '%Y%m%dT%H%M%S')
                 time_str = dt.strftime('%I:%M %p')
                 date_str = dt.strftime('%Y-%m-%d')
+                sort_key = dt.strftime('%Y-%m-%d %H:%M')
             except Exception:
                 time_str = start_raw
         elif len(start_raw) == 8:
@@ -763,6 +1045,7 @@ def parse_ics_text(ics_text: str) -> List[Dict[str, Any]]:
                 from datetime import datetime
                 dt = datetime.strptime(start_raw, '%Y%m%d')
                 date_str = dt.strftime('%Y-%m-%d')
+                sort_key = dt.strftime('%Y-%m-%d 00:00')
             except Exception:
                 date_str = start_raw
 
@@ -771,9 +1054,11 @@ def parse_ics_text(ics_text: str) -> List[Dict[str, Any]]:
             'title': summary,
             'time': time_str,
             'date': date_str,
-            'location': loc,
-            'priority': 'Personal',
-            'status': 'CONFIRMED'
+            'location': loc or 'Virtual / No Location',
+            'priority': source_label,
+            'source': source_label,
+            'status': 'CONFIRMED',
+            '_sort_key': sort_key
         })
     return events
 
@@ -784,53 +1069,119 @@ def load_calendar_config() -> dict:
             return json.loads(CALENDAR_CONFIG_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
-    return {"ical_url": "", "last_synced": None, "source": "local"}
+    return {
+        "icloud_url": "",
+        "google_url": "",
+        "last_synced": None,
+        "sources": []
+    }
 
 
 def save_calendar_config(cfg: dict):
     CALENDAR_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 
-def sync_calendar(source: Optional[str] = None) -> List[Dict[str, Any]]:
-    cfg = load_calendar_config()
-    target = source or cfg.get("ical_url")
-    
+def fetch_ics_content(url_or_path: str) -> Tuple[str, Optional[str]]:
+    target = url_or_path.strip()
     if not target:
-        for candidate in [Path.home() / ".hermes" / "sawnee_sunrise_2026-08-15.ics", Path("/Users/jmrd/.hermes/sawnee_sunrise_2026-08-15.ics")]:
-            if candidate.exists():
-                target = str(candidate)
-                break
-            
-    if not target:
-        return load_calendar_events()
-
-    ics_text = ""
+        return "", None
     if target.startswith("http://") or target.startswith("https://") or target.startswith("webcal://"):
         fetch_url = target.replace("webcal://", "https://")
         req = urllib.request.Request(fetch_url, headers={"User-Agent": "Mozilla/5.0 (Batcomputer-Alfred)"})
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                ics_text = resp.read().decode("utf-8", errors="ignore")
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                return resp.read().decode("utf-8", errors="ignore"), None
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return "", "404 Not Found (For Google Calendar, copy 'Secret address in iCal format' from settings)"
+            return "", f"HTTP {e.code}: {e.reason}"
         except Exception as e:
             print(f"Error fetching remote iCal {target}: {e}")
-            return load_calendar_events()
+            return "", str(e)
     else:
         p = Path(target)
         if p.exists():
-            ics_text = p.read_text(encoding="utf-8", errors="ignore")
+            return p.read_text(encoding="utf-8", errors="ignore"), None
+    return "", "File not found"
 
-    if ics_text:
-        parsed = parse_ics_text(ics_text)
-        if parsed:
-            save_calendar_events(parsed)
-            cfg["ical_url"] = target
-            cfg["last_synced"] = time.strftime("%Y-%m-%d %I:%M %p")
-            cfg["source"] = "Remote iCal / Google Calendar" if target.startswith("http") else "Local .ics File"
-            cfg["count"] = len(parsed)
-            save_calendar_config(cfg)
-            return parsed
 
-    return load_calendar_events()
+def sync_calendar(icloud_url: Optional[str] = None, google_url: Optional[str] = None, url: Optional[str] = None) -> List[Dict[str, Any]]:
+    cfg = load_calendar_config()
+    
+    # Update URLs if passed
+    if icloud_url is not None:
+        cfg["icloud_url"] = icloud_url.strip()
+    if google_url is not None:
+        cfg["google_url"] = google_url.strip()
+    if url is not None:
+        u = url.strip()
+        if "google.com" in u:
+            cfg["google_url"] = u
+        elif "icloud.com" in u:
+            cfg["icloud_url"] = u
+        else:
+            cfg["ical_url"] = u
+
+    all_events = []
+    active_sources = []
+    errors = []
+
+    # 1. Fetch iCloud Calendar
+    ic_target = cfg.get("icloud_url", "")
+    if ic_target:
+        txt, err = fetch_ics_content(ic_target)
+        if txt:
+            ic_events = parse_ics_text(txt, source_label="iCloud")
+            all_events.extend(ic_events)
+            active_sources.append(f"iCloud ({len(ic_events)} events)")
+        elif err:
+            active_sources.append(f"iCloud (Error: {err})")
+            errors.append(f"iCloud: {err}")
+
+    # 2. Fetch Google Calendar
+    g_target = cfg.get("google_url", "")
+    if g_target:
+        txt, err = fetch_ics_content(g_target)
+        if txt:
+            g_events = parse_ics_text(txt, source_label="Google")
+            all_events.extend(g_events)
+            active_sources.append(f"Google ({len(g_events)} events)")
+        elif err:
+            active_sources.append(f"Google (Error: {err})")
+            errors.append(f"Google: {err}")
+
+    # 3. Fallback generic iCal URL if neither above matched
+    legacy_url = cfg.get("ical_url", "")
+    if not ic_target and not g_target and legacy_url:
+        txt, err = fetch_ics_content(legacy_url)
+        if txt:
+            gen_events = parse_ics_text(txt, source_label="Calendar")
+            all_events.extend(gen_events)
+            active_sources.append(f"Calendar ({len(gen_events)} events)")
+        elif err:
+            errors.append(f"Calendar: {err}")
+
+    # Deduplicate by (title.lower(), date, time)
+    deduped = []
+    seen = set()
+    for e in all_events:
+        key = (e['title'].lower(), e['date'], e['time'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(e)
+
+    # Sort chronologically by sort key
+    deduped.sort(key=lambda x: x.get('_sort_key', '9999-99-99 99:99'))
+    for e in deduped:
+        e.pop('_sort_key', None)
+
+    save_calendar_events(deduped)
+    cfg["last_synced"] = time.strftime("%Y-%m-%d %I:%M %p")
+    cfg["sources"] = active_sources
+    cfg["errors"] = errors
+    cfg["count"] = len(deduped)
+    save_calendar_config(cfg)
+    return deduped
 
 
 # ==========================================
@@ -851,10 +1202,11 @@ DEFAULT_TOOLS_CONFIG = {
         "description": "Real-time CPU, RAM, Disk & Docker container metrics across ZimaOS and OptiPlex nodes"
     },
     "calendar": {
-        "name": "Tactical Calendar (.ics / Google)",
+        "name": "Tactical Calendar (iCloud & Google)",
         "enabled": True,
-        "ical_url": "",
-        "description": "Live schedule synchronization and daily mission briefing"
+        "icloud_url": "",
+        "google_url": "",
+        "description": "Live sync across iCloud Calendar and Google Calendar feeds"
     },
     "mail": {
         "name": "Wayne Mail (IMAP Inbox)",
@@ -875,7 +1227,7 @@ DEFAULT_TOOLS_CONFIG = {
         "name": "Alfred // Hermes Agent (Heavy Workloads)",
         "enabled": True,
         "bin_path": "/Users/jmrd/.local/bin/hermes",
-        "model": "no-think/kr/claude-haiku-4.5",
+        "model": "antigravity/gemini-3.1-flash-lite",
         "description": "Autonomous Hermes Agent (Alfred) with terminal, SSH, file editing, cron, and multi-step engineering tools"
     }
 }
@@ -892,7 +1244,7 @@ def invoke_hermes_agent(task_prompt: str, model: Optional[str] = None) -> Dict[s
         return {"success": False, "output": "Alfred (Hermes Agent) is currently disabled in Tools config.", "session_id": None, "latency_ms": 0}
 
     hermes_bin = cfg.get("bin_path") or "/Users/jmrd/.local/bin/hermes"
-    active_model = model or cfg.get("model") or "no-think/kr/claude-haiku-4.5"
+    active_model = model or cfg.get("model") or "antigravity/gemini-3.1-flash-lite"
     try:
         res = subprocess.run(
             [
@@ -1107,27 +1459,43 @@ def search_live_web(query: str) -> List[Dict[str, str]]:
     return results
 
 
-def analyze_vision_frame(image_b64: Optional[str] = None, prompt: str = "What am I looking at? Describe it concisely as Alfred.") -> Dict[str, Any]:
-    """Analyze a webcam frame, uploaded photo, or live macOS screen capture using multimodal Gemini/Claude on OmniRoute."""
+def analyze_vision_frame(
+    image_b64: Optional[str] = None,
+    prompt: str = "What am I looking at? Describe it concisely as Alfred.",
+    client_host: Optional[str] = None,
+    target: str = "auto"
+) -> Dict[str, Any]:
+    """Analyze a client screen capture, server screen capture, webcam frame, or uploaded image using multimodal Gemini."""
     import base64
     t0 = time.perf_counter()
 
-    # If no image passed from browser webcam, capture macOS host screen or camera automatically!
     source_type = "webcam_or_upload"
-    if not image_b64:
-        tmp_shot = AUDIO_CACHE / f"screen_{uuid.uuid4().hex[:6]}.jpg"
+    captured_host = client_host or "client"
+
+    if image_b64:
+        source_type = f"client_screen ({client_host})" if client_host else "client_screen"
+    else:
+        # If no client image provided, capture server host screen (Mac Mini M1 or host machine)
+        tmp_shot = AUDIO_CACHE / f"screen_{uuid.uuid4().hex[:6]}.png"
         try:
-            subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "jpg", str(tmp_shot)], timeout=3, check=True)
+            if sys.platform == "darwin":
+                subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "png", str(tmp_shot)], timeout=3, check=True)
+            else:
+                for sc_cmd in [["grim", str(tmp_shot)], ["gnome-screenshot", "-f", str(tmp_shot)], ["import", "-window", "root", str(tmp_shot)]]:
+                    if shutil.which(sc_cmd[0]):
+                        subprocess.run(sc_cmd, timeout=3, check=True)
+                        break
             if tmp_shot.exists():
                 image_b64 = base64.b64encode(tmp_shot.read_bytes()).decode("utf-8")
-                source_type = "macos_screen_capture"
+                source_type = f"server_screen ({socket.gethostname()})"
+                captured_host = socket.gethostname()
                 tmp_shot.unlink(missing_ok=True)
         except Exception as e:
-            print(f"Screen capture fallback warning: {e}")
+            print(f"Server screen capture fallback warning: {e}")
             tmp_shot.unlink(missing_ok=True)
 
     if not image_b64:
-        return {"error": "No camera frame or screen capture available.", "reply": "I do not have an active visual feed on the channel, Master Ramos."}
+        return {"error": "No camera frame or screen capture available.", "reply": "I do not have an active visual feed on the channel, Master Ramos.", "source": "none", "captured_host": captured_host}
 
     if "," in image_b64[:40]:
         image_b64 = image_b64.split(",", 1)[1]
@@ -1135,7 +1503,7 @@ def analyze_vision_frame(image_b64: Optional[str] = None, prompt: str = "What am
     vision_messages = [
         {
             "role": "system",
-            "content": "You are Alfred Pennyworth, loyal British butler to Master Ramos (Master Juan / Master Remmy). Analyze the visual feed in 1-2 sharp, helpful sentences (<30 words) with refined British wit."
+            "content": f"You are Alfred Pennyworth, loyal British butler to Master Ramos (Master Juan / Master Remmy). You are currently inspecting the visual feed from [{source_type}]. Analyze what you see in 1-2 sharp, helpful sentences (<30 words) with refined British wit."
         },
         {
             "role": "user",
@@ -1147,7 +1515,7 @@ def analyze_vision_frame(image_b64: Optional[str] = None, prompt: str = "What am
     ]
 
     reply = ""
-    for v_model in ["antigravity/gemini-3-flash", "no-think/kr/claude-haiku-4.5"]:
+    for v_model in ["antigravity/gemini-3-flash", "antigravity/gemini-3.1-flash-lite"]:
         try:
             r = HTTP_SESSION.post(
                 f"{OMNIROUTE_URL}/chat/completions",
@@ -1167,6 +1535,8 @@ def analyze_vision_frame(image_b64: Optional[str] = None, prompt: str = "What am
     return {
         "reply": reply,
         "source": source_type,
+        "captured_host": captured_host,
+        "is_server_screen": "server_screen" in source_type,
         "latency_ms": round((time.perf_counter() - t0) * 1000)
     }
 
@@ -1368,6 +1738,97 @@ async def serve_service_worker():
     return HTMLResponse("", media_type="application/javascript")
 
 
+# ==========================================
+# AUTHENTICATION & ACCESS CONTROL
+# ==========================================
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    password = str(body.get("password") or body.get("passcode") or "").strip()
+    if not password:
+        raise HTTPException(status_code=400, detail="Clearance passcode is required.")
+
+    if verify_password(password):
+        token = "wayne-sess-" + secrets.token_hex(24)
+        client_ip = request.client.host if request.client else "unknown"
+        ACTIVE_SESSIONS[token] = {
+            "created_at": time.time(),
+            "user": "Master Ramos",
+            "remote": client_ip
+        }
+        print(f"🔒 [AUTH] Successful Wayne Tech login from {client_ip}. Session created: {token[:16]}...")
+        resp = JSONResponse({
+            "ok": True,
+            "authenticated": True,
+            "token": token,
+            "user": "Master Ramos",
+            "message": "Clearance Level 5 Verified. Welcome, Master Ramos."
+        })
+        resp.set_cookie(
+            key="bat_session",
+            value=token,
+            max_age=30 * 86400,
+            path="/",
+            samesite="lax",
+            httponly=False
+        )
+        return resp
+    else:
+        client_ip = request.client.host if request.client else "unknown"
+        print(f"⚠️ [AUTH] Failed login attempt from {client_ip}.")
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "authenticated": False,
+                "detail": "SECURITY BREACH ATTEMPT DETECTED: Invalid Wayne Tech Clearance Passcode."
+            }
+        )
+
+
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    token = None
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+    elif request.headers.get("x-batcomputer-token") or request.headers.get("X-Batcomputer-Token"):
+        token = (request.headers.get("x-batcomputer-token") or request.headers.get("X-Batcomputer-Token")).strip()
+        
+    if not token and "bat_session" in request.cookies:
+        token = request.cookies.get("bat_session")
+        
+    if not token:
+        token = request.query_params.get("token")
+        
+    is_valid = verify_token(token)
+    cfg = get_auth_config()
+    auth_enabled = cfg.get("auth_enabled", True)
+    
+    return {
+        "authenticated": is_valid or not auth_enabled,
+        "auth_enabled": auth_enabled,
+        "user": "Master Ramos" if is_valid else None
+    }
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    token = request.cookies.get("bat_session")
+    if token and token in ACTIVE_SESSIONS:
+        try:
+            del ACTIVE_SESSIONS[token]
+        except KeyError:
+            pass
+    resp = JSONResponse({"ok": True, "authenticated": False, "message": "Terminal Locked. Clearance Revoked."})
+    resp.delete_cookie("bat_session", path="/")
+    return resp
+
+
 @app.api_route("/api/telemetry", methods=["GET", "HEAD"])
 async def get_telemetry(request: Request):
     cpu_pct = psutil.cpu_percent(interval=None)
@@ -1422,30 +1883,17 @@ async def get_telemetry(request: Request):
 # Models
 @app.get("/api/models")
 def list_models():
-    # OmniRoute Antigravity Models
-    omni_models = [
-        "no-think/kr/claude-haiku-4.5",
+    # OmniRoute Antigravity Gemini Models
+    gemini_models = [
         "antigravity/gemini-3.1-flash-lite",
         "antigravity/gemini-3-flash",
         "antigravity/gemini-3.5-flash-lite",
-        "antigravity/claude-sonnet-5-5-medium",
-        "antigravity/claude-opus-5-5-high",
         "antigravity/gemini-3.8-flash-high",
-        "alfred-antigravity"
+        "antigravity/gemini-3.8-flash-medium",
+        "antigravity/gemini-3.8-flash-tiered",
     ]
-    # Local Ollama Models
-    ollama_models = ["qwen2.5:7b", "llama3.1:8b", "qwen2.5-coder:7b-instruct", "mistral:7b-instruct-v0.3-q4_K_M"]
-    try:
-        req = urllib.request.Request(f"{OLLAMA_URL}/api/tags")
-        with urllib.request.urlopen(req, timeout=2) as r:
-            data = json.loads(r.read().decode("utf-8"))
-            tags = [m["name"] for m in data.get("models", [])]
-            if tags:
-                ollama_models = tags
-    except Exception:
-        pass
 
-    # Query live OmniRoute catalog
+    # Query live OmniRoute catalog for Gemini models
     if OMNIROUTE_KEY:
         try:
             r = HTTP_SESSION.get(
@@ -1457,31 +1905,28 @@ def list_models():
                 data = r.json()
                 found = [
                     m.get("id") for m in data.get("data", [])
-                    if any(k in m.get("id", "").lower() for k in ["antigravity", "alfred", "no-think/kr/claude-haiku-4.5", "kr/claude-haiku-4.5"])
+                    if "gemini" in m.get("id", "").lower()
                 ]
                 if found:
                     priority_order = [
-                        "no-think/kr/claude-haiku-4.5",
                         "antigravity/gemini-3.1-flash-lite",
                         "antigravity/gemini-3-flash",
                         "antigravity/gemini-3.5-flash-lite",
-                        "antigravity/gemini-3.8-flash-tiered",
                         "antigravity/gemini-3.8-flash-high",
-                        "alfred-antigravity",
-                        "antigravity/claude-sonnet-5-5-medium"
+                        "antigravity/gemini-3.8-flash-medium",
+                        "antigravity/gemini-3.8-flash-tiered",
                     ]
                     ordered = [m for m in priority_order if m in found]
                     remaining = [m for m in found if m not in priority_order]
-                    omni_models = ordered + remaining
+                    gemini_models = ordered + remaining
         except Exception:
             pass
 
-    all_models = omni_models + [m for m in ollama_models if m not in omni_models]
     return {
         "current_model": CURRENT_MODEL,
-        "available_models": all_models,
-        "omniroute_models": omni_models,
-        "ollama_models": ollama_models
+        "available_models": gemini_models,
+        "omniroute_models": gemini_models,
+        "ollama_models": []
     }
 
 
@@ -1588,9 +2033,22 @@ def get_calendar():
 
 @app.post("/api/calendar/sync")
 def api_sync_calendar(data: dict = None):
-    url = data.get("url") if data else None
-    events = sync_calendar(url)
+    data = data or {}
+    icloud_url = data.get("icloud_url")
+    google_url = data.get("google_url")
+    url = data.get("url")
+    events = sync_calendar(icloud_url=icloud_url, google_url=google_url, url=url)
     return {"success": True, "count": len(events), "events": events, "config": load_calendar_config()}
+
+
+@app.post("/api/calendar/clear")
+def api_clear_calendar():
+    save_calendar_events([])
+    cfg = load_calendar_config()
+    cfg["count"] = 0
+    cfg["last_synced"] = time.strftime("%Y-%m-%d %I:%M %p")
+    save_calendar_config(cfg)
+    return {"success": True, "count": 0, "events": []}
 
 
 @app.post("/api/calendar/add")
@@ -1744,7 +2202,7 @@ def api_get_hermes_status():
         "enabled": cfg.get("enabled", True),
         "installed": Path(bin_path).exists() or bool(shutil.which("hermes")),
         "binary": bin_path,
-        "model": cfg.get("model", "no-think/kr/claude-haiku-4.5"),
+        "model": cfg.get("model", "antigravity/gemini-3.1-flash-lite"),
         "tasks": _HERMES_TASKS
     }
 
@@ -1759,13 +2217,60 @@ def api_run_hermes_task(data: dict):
     return res
 
 
+# Multi-Client Registry (Server + Multiple Clients or All-in-One Configuration)
+CLIENTS_REGISTRY: Dict[str, Any] = {}
+
+@app.post("/api/clients/register")
+def register_client_node(data: dict):
+    """Register or heartbeat an active client node (Gaming PC, Surface, Laptop, etc.)"""
+    cid = data.get("client_id") or data.get("hostname") or f"client_{uuid.uuid4().hex[:6]}"
+    CLIENTS_REGISTRY[cid] = {
+        "client_id": cid,
+        "hostname": data.get("hostname", cid),
+        "platform": data.get("platform", "unknown"),
+        "bridge_url": data.get("bridge_url", ""),
+        "capabilities": data.get("capabilities", []),
+        "version": data.get("version", "1.2"),
+        "last_seen": time.time(),
+        "last_seen_str": time.strftime("%Y-%m-%d %I:%M:%S %p")
+    }
+    return {"status": "ok", "client_id": cid, "total_clients": len(CLIENTS_REGISTRY)}
+
+
+@app.get("/api/clients")
+def list_clients():
+    """List registered Batcomputer client nodes and central server node status."""
+    now = time.time()
+    active_clients = []
+    for cid, info in CLIENTS_REGISTRY.items():
+        is_online = (now - info.get("last_seen", 0)) < 120
+        active_clients.append({**info, "online": is_online})
+    return {
+        "server": {
+            "hostname": socket.gethostname(),
+            "platform": sys.platform,
+            "role": "central_server",
+            "model": CURRENT_MODEL,
+            "voice": CURRENT_VOICE
+        },
+        "clients": active_clients
+    }
+
+
 @app.post("/api/vision")
 def api_vision_endpoint(data: dict):
-    """JARVIS Computer Vision endpoint: analyzes webcam snapshot, uploaded image, or live macOS screen capture."""
+    """
+    JARVIS Multimodal Vision endpoint:
+    Distinguishes client screen capture (Gaming PC / Laptop) vs server screen capture (Mac Mini M1),
+    as well as webcam and uploaded images.
+    """
     image_b64 = data.get("image")
     prompt = data.get("prompt") or "Look at this visual feed and tell me what you see or how to solve it in 1-2 sentences, Master Ramos."
+    client_host = data.get("client_host") or data.get("host")
+    target = data.get("target", "client" if image_b64 else "server")
     skip_tts = bool(data.get("skip_tts", True))
-    res = analyze_vision_frame(image_b64, prompt)
+
+    res = analyze_vision_frame(image_b64, prompt, client_host=client_host, target=target)
     audio_url = None if skip_tts else synthesize_voice(res.get("reply", ""), CURRENT_VOICE)
     res["audio_url"] = audio_url
     return res
@@ -1956,7 +2461,7 @@ def chat_endpoint(data: dict):
             reply = "Neural processing core successfully linked to OmniRoute Antigravity Flash-Lite brain. Awaiting directives, Master Ramos."
             audio_url = maybe_tts(reply)
             return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "action": {"model": CURRENT_MODEL}, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
-        for m in ["antigravity/gemini-3.1-flash-lite", "antigravity/gemini-3-flash", "antigravity/claude-sonnet-5-5-medium", "antigravity/claude-opus-5-5-high", "antigravity/gemini-3.8-flash-high", "qwen2.5:7b", "llama3.1:8b", "qwen2.5-coder:7b-instruct", "mistral:7b-instruct-v0.3-q4_K_M"]:
+        for m in ["antigravity/gemini-3.1-flash-lite", "antigravity/gemini-3-flash", "antigravity/gemini-3.5-flash-lite", "antigravity/gemini-3.8-flash-high", "antigravity/gemini-3.8-flash-medium", "antigravity/gemini-3.8-flash-tiered"]:
             if m.split(":")[0] in lower or m.lower() in lower:
                 CURRENT_MODEL = m
                 reply = f"Neural processing core switched to {m}. Awaiting directives, Master Remmy."
@@ -2085,7 +2590,8 @@ def chat_endpoint(data: dict):
 
     # 3d. Computer Vision / Screen Inspection Trigger ("Alfred, look at my screen" / "what is on my screen")
     if any(q in lower for q in ["look at my screen", "what is on my screen", "what's on my screen", "analyze my screen", "read my screen"]):
-        v_res = analyze_vision_frame(None, user_message)
+        target_mode = "server" if "server" in lower else "client"
+        v_res = analyze_vision_frame(None, user_message, target=target_mode)
         reply = v_res.get("reply", "Screen inspected, Master Ramos.")
         audio_url = maybe_tts(reply)
         return {"user_message": user_message, "reply": reply, "audio_url": audio_url, "vision": True, "latency_ms": round((time.perf_counter() - t_start) * 1000)}
@@ -2176,18 +2682,29 @@ def chat_endpoint(data: dict):
         if web_hits:
             web_search_str = "\nLIVE WEB SEARCH RESULTS:\n" + "\n".join([f"- {h['title']}: {h['snippet']}" for h in web_hits])
 
-    engine_desc = f"OmniRoute Antigravity Neural Gateway ({active_model})" if is_omniroute_model(active_model) else f"Local Ollama Core ({active_model})"
+    engine_desc = f"OmniRoute Antigravity Gemini Gateway ({active_model})"
+    session_summary = get_running_session_summary()
+    session_summary_str = f"\n{session_summary}\n" if session_summary else ""
+
+    second_brain_ctx = get_relevant_second_brain_context(clean_directive)
+    second_brain_str = f"\nRELEVANT SECOND BRAIN KNOWLEDGE:\n{second_brain_ctx}\n" if second_brain_ctx else ""
+
     system_prompt = f"""You are 'Puter (Computer), the fast, witty Batcomputer AI assistant to Juan Manuel Ramos (inspired by The Lego Batman Movie 'Puter + JARVIS).
 Wake words: "Computer", "Puter", "Hey Computer", or "Hey Puter".
 Address him naturally as 'Master Ramos', 'Master Juan', or 'Master Remmy' (NEVER call him Master Wayne or Bruce).
 Reply in 1-2 crisp sentences (<25 words).
 
-CONTINUOUS MULTI-TURN CONVERSATION AWARENESS:
+CONTINUOUS MULTI-TURN CONVERSATION & MEMORY AWARENESS:
 - You are engaged in a fluid, continuous conversation with Master Ramos.
-- Maintain strict contextual awareness across turns:
-  * Pronouns ("it", "they", "that", "those", "the other one", "both", "all of them") refer directly to entities, devices, rooms, or topics discussed in the immediately preceding turns.
-  * If Master Ramos clarifies or corrects a previous command (e.g., "I meant the monitors", "no, the bedroom lights", "make it 10%", "turn that off too", "is it still running?"), immediately apply the correction using full context from recent messages.
-  * During an ongoing exchange, do not restart conversations with greetings or generic pleasantries. Speak naturally as a seamless dialogue partner.
+- Maintain strict contextual awareness across turns and sessions.
+- In addition to recent dialogue turns, use RUNNING SESSION CONTEXT and RELEVANT SECOND BRAIN KNOWLEDGE below to remember ongoing tasks, preferences, and discussed topics.
+- Self-Learning & Memory: You automatically learn and retain facts. If you learn an important persistent fact, preference, hardware setup, or correction from Master Ramos, you can record it to permanent memory by appending:
+[MEMORY_ADD: <Category> | <Fact>]
+(Categories: Identity, Preference, Project, Hardware, Habit, Correction).
+Example: [MEMORY_ADD: Hardware | Master Ramos uses Razer Barracuda headset on 144Hz DP-1 monitor]
+- Pronouns ("it", "they", "that", "those", "the other one", "both", "all of them") refer directly to entities, devices, rooms, or topics discussed in recent messages or running context.
+- If Master Ramos clarifies or corrects a previous command (e.g., "I meant the monitors", "no, the bedroom lights", "make it 10%", "turn that off too", "is it still running?"), immediately apply the correction using full context from recent messages.
+- During an ongoing exchange, do not restart conversations with greetings or generic pleasantries. Speak naturally as a seamless dialogue partner.
 
 ALFRED // HERMES AGENT DELEGATION PROTOCOL (AUTONOMOUS HEAVY WORKLOADS):
 - Remember that ALFRED is your autonomous Hermes Agent (`/Users/jmrd/.local/bin/hermes`) running on Mac-mini-M1 with full terminal, shell, SSH, file editing, code execution, cron, and deep research capabilities.
@@ -2204,7 +2721,7 @@ HOME ASSISTANT PROTOCOL:
 Examples: [HA_CALL: light.turn_on | light.luz_papas], [HA_CALL: light.turn_on | light.dimmer_cuarto_jm | {{"brightness_pct": 25}}], [HA_CALL: media_player.volume_set | media_player.sonos_home_theater | {{"volume_level": 0.3}}], [HA_CALL: media_player.media_play_pause | media_player.tv_sala_2], [HA_CALL: button.press | button.anycubic_kobra_x_pause_print]
 
 Time: {time.strftime('%I:%M %p')}
-OUTDOOR WEATHER: {weather_str}
+OUTDOOR WEATHER: {weather_str}{session_summary_str}{second_brain_str}
 LIVE HA STATE:
 {ha_live_context}
 BESZEL FLEET TELEMETRY:
@@ -2219,7 +2736,8 @@ Schedule: {calendar_summary}"""
     messages = [{"role": "system", "content": system_prompt}] + history[-14:] + [{"role": "user", "content": user_message}]
     
     raw_reply = query_brain(messages, active_model)
-    reply, ha_actions = execute_llm_ha_tags(raw_reply)
+    reply, mem_actions = execute_llm_memory_tags(raw_reply)
+    reply, ha_actions = execute_llm_ha_tags(reply)
     reply, hermes_actions = execute_llm_hermes_tags(reply)
     if not reply:
         reply = "Directive executed, Master Ramos."
@@ -2229,6 +2747,13 @@ Schedule: {calendar_summary}"""
     history.append({"role": "user", "content": user_message})
     history.append({"role": "assistant", "content": reply})
     save_chat_history(history)
+
+    # Autonomous Background Learning & Memory Consolidation (runs non-blocking)
+    threading.Thread(
+        target=extract_and_learn_memories_async,
+        args=(user_message, reply),
+        daemon=True
+    ).start()
     
     return {
         "user_message": user_message,
@@ -2236,6 +2761,7 @@ Schedule: {calendar_summary}"""
         "audio_url": audio_url,
         "ha_actions": ha_actions,
         "hermes_actions": hermes_actions,
+        "memory_actions": mem_actions,
         "latency_ms": round((time.perf_counter() - t_start) * 1000)
     }
 
