@@ -1856,25 +1856,12 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
             self.setScreen(self.screen_obj)
             self.setGeometry(geom)
             self.show()
-            self.lower()
             s_name = self.screen_obj.name()
             try:
-                # Push this desktop shell to the bottom of the Hyprland z-order below all normal apps
                 lua_cmd = f'hl.dispatch(hl.dsp.window.alter_zorder({{ mode = "bottom", match = {{ title = "^Puter // BCv1\\\\.2 Desktop Shell - {s_name}$" }} }}))'
                 subprocess.run(["hyprctl", "eval", lua_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
             except Exception:
                 pass
-
-        def changeEvent(self, event):
-            super().changeEvent(event)
-            if self.isActiveWindow():
-                self.lower()
-                try:
-                    s_name = self.screen_obj.name()
-                    lua_cmd = f'hl.dispatch(hl.dsp.window.alter_zorder({{ mode = "bottom", match = {{ title = "^Puter // BCv1\\\\.2 Desktop Shell - {s_name}$" }} }}))'
-                    subprocess.run(["hyprctl", "eval", lua_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-                except Exception:
-                    pass
 
         def hide_desktop_shell(self):
             self.hide()
