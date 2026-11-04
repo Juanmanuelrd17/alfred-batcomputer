@@ -2522,13 +2522,12 @@ def api_proactive_briefing(speak_on_host: bool = False, skip_tts: bool = True, m
 
 
 @app.api_route("/api/evening-debrief", methods=["GET", "POST"])
-def api_evening_debrief(powerdown_smart_home: bool = True, skip_tts: bool = True):
+def api_evening_debrief(powerdown_smart_home: bool = False, skip_tts: bool = True):
     """
     Evening Wrap-Up & Tomorrow Preview:
     1. Summarizes today's operations (notes captured, system uptime)
     2. Previews tomorrow's first objective and weather
-    3. Powers down living room TV and ambient lights via Home Assistant
-    4. Delivers elegant butler closing
+    3. Delivers elegant butler closing and signals system powerdown
     """
     t0 = time.perf_counter()
     try:
@@ -2561,7 +2560,7 @@ def api_evening_debrief(powerdown_smart_home: bool = True, skip_tts: bool = True
                 pass
     notes_part = f" You captured {notes_today} tactical note{'s' if notes_today != 1 else ''} in your Second Brain vault today." if notes_today > 0 else ""
 
-    # Smart Home Powerdown
+    # Smart Home Powerdown (disabled per user request)
     smart_home_log = []
     if powerdown_smart_home:
         try:
@@ -2578,7 +2577,6 @@ def api_evening_debrief(powerdown_smart_home: bool = True, skip_tts: bool = True
     reply = (
         f"Good evening, Master Ramos. Daily tactical operations have concluded.{notes_part} "
         f"{tomorrow_part} {weather_part} "
-        f"I have powered down the living room Bravia display and ambient lighting. "
         f"Sleep well, Master Ramos. Powering down systems now."
     ).strip()
 

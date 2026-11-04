@@ -550,19 +550,19 @@ class AlfredBackgroundDaemon:
     def execute_evening_shutdown(self, directive: str):
         """
         Executes the Bedtime / Goodnight Computer routine:
-        1. Queries /api/evening-debrief on host to turn off Bravia TV and living room lights.
+        1. Queries /api/evening-debrief on host for today's summary and tomorrow's preview.
         2. Alfred speaks the summary of today and preview of tomorrow.
         3. Posts a countdown notification with cancel option.
         4. Waits for TTS audio completion + 3 seconds, then issues systemctl poweroff.
         """
         try:
             self._shutdown_cancelled = False
-            self.emit_ui(state="BEDTIME SEQUENCE", user_text=directive, reply_text="Initiating Batcave nightfall sequence, Master Ramos...")
+            self.emit_ui(state="BEDTIME SEQUENCE", user_text=directive, reply_text="Initiating system nightfall shutdown, Master Ramos...")
             debrief_data = {}
             try:
                 res = self.session.post(
                     f"{self.server_url}/api/evening-debrief",
-                    params={"powerdown_smart_home": "true", "skip_tts": "false"},
+                    params={"powerdown_smart_home": "false", "skip_tts": "false"},
                     timeout=8
                 ).json()
                 debrief_data = res
@@ -575,7 +575,7 @@ class AlfredBackgroundDaemon:
             if not reply:
                 reply = (
                     "Good evening, Master Ramos. Daily tactical operations have concluded. "
-                    "Your schedule for tomorrow is registered. I have signaled the Batcave ambient shutdown. "
+                    "Your schedule for tomorrow is registered. "
                     "Sleep well, Master Ramos. Powering down systems now."
                 )
 
