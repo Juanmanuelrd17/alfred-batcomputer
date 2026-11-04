@@ -3,10 +3,13 @@
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-if [ -z "$WAYLAND_DISPLAY" ]; then
-    for i in {1..30}; do
+
+# If WAYLAND_DISPLAY is not set or points to a dead socket, dynamically discover the active Wayland socket
+if [ -z "$WAYLAND_DISPLAY" ] || [ ! -S "$RUNTIME/$WAYLAND_DISPLAY" ]; then
+    unset WAYLAND_DISPLAY
+    for i in {1..20}; do
         SOCK=$(ls -1 "$RUNTIME"/wayland-* 2>/dev/null | grep -E "wayland-[0-9]+$" | head -1)
-        if [ -n "$SOCK" ]; then
+        if [ -n "$SOCK" ] && [ -S "$SOCK" ]; then
             export WAYLAND_DISPLAY="$(basename "$SOCK")"
             break
         fi
@@ -14,13 +17,26 @@ if [ -z "$WAYLAND_DISPLAY" ]; then
     done
 fi
 
+# Ensure Hyprland is active and responsive before initializing any GUI windows
+HYPR_OK=0
+for i in {1..20}; do
+    if hyprctl instances >/dev/null 2>&1; then
+        HYPR_OK=1
+        break
+    fi
+    sleep 0.5
+done
+
+if [ "$HYPR_OK" -eq 0 ]; then
+    echo "⚠️ [Batcomputer Startup]: Hyprland compositor is not active or not responding. Exiting cleanly to protect display manager session."
+    exit 0
+fi
+
 export XDG_RUNTIME_DIR="$RUNTIME"
 export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-Hyprland}"
 export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-wayland}"
 export DISPLAY="${DISPLAY:-:0}"
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
-# export WEBKIT_DISABLE_DMABUF_RENDERER="1"
-# export WEBKIT_DMABUF_RENDERER_FORCE_SHM="1"
 export QTWEBENGINE_CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage --in-process-gpu"
 
 # If invoked without --daemon, check if daemon is already active:

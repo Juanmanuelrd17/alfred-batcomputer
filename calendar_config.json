@@ -1,6 +1,17 @@
 {
-  "ical_url": "/Users/jmrd/.hermes/sawnee_sunrise_2026-08-15.ics",
-  "last_synced": "2026-10-30 05:04 PM",
-  "source": "Local .ics File",
-  "count": 3
+  "icloud_url": "webcal://p111-caldav.icloud.com/published/2/MTg0NzgxMTQ5MTYxODQ3OExZ_BQMFPmToyvAIWVCfQPzOUG0L4m-Cj8PFygmcS5wL6U9NrcIayhfx-ILvh_lS59JqSCuKoNGk_ZxOw144kw",
+  "google_url": "https://calendar.google.com/calendar/ical/juanmanuelrd1017%40gmail.com/public/basic.ics",
+  "last_synced": "2026-11-03 11:48 PM",
+  "sources": [
+    "iCloud (96 events)",
+    "Google (Error: 404 Not Found (For Google Calendar, copy 'Secret address in iCal format' from settings))"
+  ],
+  "count": 96,
+  "errors": [
+    "Google: 404 Not Found (For Google Calendar, copy 'Secret address in iCal format' from settings)"
+  ],
+  "upcoming_count": 0,
+  "today_count": 0,
+  "past_count": 96,
+  "next_event": null
 }

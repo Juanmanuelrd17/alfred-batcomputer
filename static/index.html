@@ -33,14 +33,26 @@
       user-select: none;
     }
 
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      max-width: 100vw;
+      max-height: 100vh;
+      margin: 0;
+      padding: 0;
+      overflow: hidden !important;
+      overscroll-behavior: none !important;
+      touch-action: none;
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
     body {
       background-color: var(--bg);
       color: var(--cyan);
       font-family: var(--font-mono);
-      min-height: 100vh;
-      width: 100vw;
-      overflow-x: hidden;
-      position: relative;
       background-image:
         radial-gradient(circle at 50% 46%, rgba(0, 140, 255, 0.14) 0%, rgba(0, 40, 90, 0.05) 45%, transparent 72%),
         linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
@@ -48,23 +60,15 @@
       background-size: 100% 100%, 36px 36px, 36px 36px;
     }
 
-    /* Subtle CRT & HUD scanline overlay */
+    /* Subtle CRT & HUD scanline overlay (Disabled for ultra-smooth 144Hz desktop performance) */
     body::after {
-      content: " ";
-      display: block;
-      position: fixed;
-      top: 0; left: 0; bottom: 0; right: 0;
-      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.28) 50%);
-      background-size: 100% 3px;
-      z-index: 999;
-      pointer-events: none;
-      opacity: 0.65;
+      display: none;
     }
 
     /* Outer HUD Chamfered Frame Lines */
     .hud-frame-border {
       position: fixed;
-      inset: 6px;
+      inset: 4px 6px 12px 6px;
       border: 1px solid rgba(0, 229, 255, 0.22);
       clip-path: polygon(
         0 18px, 18px 0,
@@ -84,10 +88,11 @@
       display: grid;
       grid-template-columns: 230px 1fr 230px;
       align-items: center;
-      padding: 6px 22px 4px 22px;
+      padding: 4px 18px 2px 18px;
       position: relative;
       z-index: 50;
-      gap: 12px;
+      gap: 10px;
+      flex: 0 0 auto;
     }
 
     @media (max-width: 1100px) {
@@ -99,10 +104,10 @@
     .corner-gauge-card {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
       background: rgba(1, 16, 32, 0.85);
       border: 1px solid var(--panel-border);
-      padding: 6px 14px;
+      padding: 4px 10px;
       clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
       box-shadow: inset 0 0 15px rgba(0, 229, 255, 0.08);
     }
@@ -164,12 +169,12 @@
     .top-trapezoid {
       background: linear-gradient(180deg, rgba(0, 28, 56, 0.92) 0%, rgba(1, 14, 28, 0.88) 100%);
       border: 1px solid var(--cyan);
-      clip-path: polygon(0 0, 100% 0, calc(100% - 28px) 100%, 28px 100%);
-      padding: 8px 42px 10px 42px;
+      clip-path: polygon(0 0, 100% 0, calc(100% - 24px) 100%, 24px 100%);
+      padding: 4px 28px 6px 28px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 18px;
+      gap: 14px;
       box-shadow: var(--glow);
     }
 
@@ -246,14 +251,18 @@
     .hud-grid {
       display: grid;
       grid-template-columns: 360px 1fr 410px;
-      grid-template-rows: 1fr auto;
-      gap: 14px;
-      padding: 6px 20px 16px 20px;
+      grid-template-rows: minmax(0, 1fr) auto;
+      gap: 8px;
+      padding: 2px 16px 14px 16px;
       max-width: 1920px;
+      width: 100%;
       margin: 0 auto;
-      min-height: calc(100vh - 92px);
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
       position: relative;
       z-index: 10;
+      box-sizing: border-box;
     }
 
     @media (max-width: 1380px) {
@@ -264,18 +273,12 @@
 
     /* Sci-Fi Chamfered Panel */
     .panel {
-      background: var(--panel-bg);
+      background: rgba(2, 16, 30, 0.92);
       border: 1px solid var(--panel-border);
+      border-radius: 4px;
       padding: 12px 14px;
       position: relative;
-      backdrop-filter: blur(8px);
-      clip-path: polygon(
-        0 10px, 10px 0,
-        calc(100% - 10px) 0, 100% 10px,
-        100% calc(100% - 10px), calc(100% - 10px) 100%,
-        10px 100%, 0 calc(100% - 10px)
-      );
-      box-shadow: inset 0 0 18px rgba(0, 229, 255, 0.05);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), inset 0 0 16px rgba(0, 229, 255, 0.05);
     }
 
     .panel::before {
@@ -310,7 +313,7 @@
       background: var(--cyan);
       box-shadow: 0 0 8px var(--cyan);
       border-radius: 50%;
-      animation: blink 2s infinite;
+      opacity: 0.9;
     }
 
     @keyframes blink {
@@ -355,7 +358,9 @@
     .left-col-wrapper {
       display: grid;
       grid-template-columns: 54px 1fr;
-      gap: 10px;
+      gap: 8px;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .orbital-launcher-rail {
@@ -434,9 +439,9 @@
       align-items: center;
       justify-content: space-between;
       position: relative;
-      min-height: 460px;
-      overflow: visible;
-      padding: 8px 10px;
+      min-height: 0;
+      overflow: hidden;
+      padding: 4px 8px;
       background: transparent !important;
       border: none !important;
       box-shadow: none !important;
@@ -451,49 +456,383 @@
     .center-bat-hero {
       position: relative;
       width: 100%;
-      max-width: 720px;
+      max-width: 680px;
+      flex: 1;
+      min-height: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin: auto 0;
-      padding: 10px 0;
-      animation: batHeroPulse 5s ease-in-out infinite alternate;
+      padding: 4px 0;
+      opacity: 0.95;
     }
 
     .center-bat-hero svg {
       width: 100%;
+      max-height: 180px;
       height: auto;
       overflow: visible;
-      filter:
-        drop-shadow(0 0 12px rgba(0, 229, 255, 0.95))
-        drop-shadow(0 0 32px rgba(0, 150, 255, 0.65))
-        drop-shadow(0 0 65px rgba(0, 110, 255, 0.4));
+      filter: drop-shadow(0 0 10px rgba(0, 229, 255, 0.5));
+      transition: opacity 0.3s ease;
     }
 
-    @keyframes batHeroPulse {
-      0% {
-        transform: scale(0.99);
-        filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.4));
-      }
-      100% {
-        transform: scale(1.015);
-        filter: drop-shadow(0 0 22px rgba(0, 229, 255, 0.85));
-      }
+    .center-bat-hero.listening svg {
+      filter: drop-shadow(0 0 16px #00e5ff);
+      opacity: 1;
+    }
+    .center-bat-hero.speaking svg {
+      filter: drop-shadow(0 0 16px #00ff88);
+      opacity: 1;
+    }
+    .center-bat-hero.processing svg {
+      filter: drop-shadow(0 0 16px #bd00ff);
+      opacity: 1;
+    }
+
+    /* Fleet Nodes Cluster & Pills */
+    .fleet-nodes-cluster {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      padding: 3px 8px;
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      background: rgba(0, 16, 32, 0.65);
+      transition: all 0.15s;
+    }
+    .fleet-nodes-cluster:hover {
+      border-color: var(--cyan);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.25);
+    }
+    .fleet-node-pill {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 9px;
+      color: #fff;
+    }
+    .fleet-node-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+    }
+    .fleet-node-dot.offline {
+      background: #888;
+      box-shadow: none;
+    }
+    .fleet-node-role {
+      font-size: 7.5px;
+      padding: 1px 4px;
+      border-radius: 2px;
+      background: rgba(0, 229, 255, 0.2);
+      color: var(--cyan);
+      font-weight: 700;
+    }
+
+    /* Hyprland Workspace Switcher Cluster */
+    .workspace-pill-cluster {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 4px;
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      background: rgba(0, 16, 32, 0.65);
+    }
+    .ws-btn {
+      background: rgba(0, 30, 60, 0.6);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      color: #88a;
+      font-size: 8.5px;
+      font-family: var(--font-display);
+      padding: 2px 6px;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .ws-btn:hover {
+      border-color: var(--cyan);
+      color: #fff;
+    }
+    .ws-btn.active {
+      background: var(--cyan);
+      color: #001020;
+      font-weight: 800;
+      border-color: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan);
+    }
+
+    /* WirePlumber Master Audio Cluster */
+    .audio-control-cluster {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 6px;
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      background: rgba(0, 16, 32, 0.65);
+    }
+    .audio-icon-btn {
+      background: transparent;
+      border: none;
+      color: var(--cyan);
+      cursor: pointer;
+      font-size: 11px;
+      padding: 0 2px;
+      line-height: 1;
+    }
+    .audio-icon-btn:hover {
+      filter: drop-shadow(0 0 4px var(--cyan));
+    }
+    .hud-slider {
+      -webkit-appearance: none;
+      width: 54px;
+      height: 4px;
+      background: rgba(0, 40, 80, 0.8);
+      border-radius: 2px;
+      outline: none;
+      border: 1px solid rgba(0, 229, 255, 0.3);
+    }
+    .hud-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--cyan);
+      cursor: pointer;
+      box-shadow: 0 0 5px var(--cyan);
+    }
+
+    /* Next Mission / Agenda Ticker */
+    .next-event-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 7px;
+      margin-top: 3px;
+      border: 1px solid rgba(0, 229, 255, 0.35);
+      border-radius: 3px;
+      background: rgba(0, 20, 40, 0.7);
+      cursor: pointer;
+      font-size: 8px;
+      color: var(--cyan);
+      font-family: var(--font-mono);
+      transition: all 0.15s;
+    }
+    .next-event-pill:hover {
+      border-color: var(--cyan);
+      background: rgba(0, 40, 80, 0.85);
+      box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+    }
+
+    /* Tactical Note Viewer Modal */
+    .note-modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 8, 16, 0.85);
+      backdrop-filter: blur(6px);
+      z-index: 99999;
+      align-items: center;
+      justify-content: center;
+    }
+    .note-modal-box {
+      width: 620px;
+      max-width: 90vw;
+      max-height: 80vh;
+      background: #010c18;
+      border: 1px solid var(--cyan);
+      border-radius: 6px;
+      box-shadow: 0 0 35px rgba(0, 229, 255, 0.25);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Tactical Command Palette Modal */
+    .cmd-palette-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 6, 14, 0.82);
+      backdrop-filter: blur(8px);
+      z-index: 9999;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 13vh;
+    }
+    .cmd-palette-backdrop.active {
+      display: flex;
+    }
+    .cmd-palette-box {
+      width: 640px;
+      max-width: 92vw;
+      background: rgba(1, 14, 28, 0.96);
+      border: 1px solid var(--cyan);
+      box-shadow: 0 0 35px rgba(0, 229, 255, 0.35), inset 0 0 20px rgba(0, 229, 255, 0.08);
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .cmd-palette-input-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--panel-border);
+      background: rgba(0, 20, 40, 0.7);
+    }
+    .cmd-palette-input-box input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #fff;
+      font-size: 14px;
+      font-family: inherit;
+      letter-spacing: 0.5px;
+    }
+    .cmd-palette-results {
+      max-height: 380px;
+      overflow-y: auto;
+      padding: 6px;
+    }
+    .cmd-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 3px;
+      cursor: pointer;
+      color: #ccd6f6;
+      font-size: 11px;
+      border-left: 2px solid transparent;
+      transition: all 0.12s;
+    }
+    .cmd-item:hover, .cmd-item.selected {
+      background: rgba(0, 229, 255, 0.15);
+      color: #fff;
+      border-left: 2px solid var(--cyan);
+    }
+    .cmd-item-cat {
+      font-size: 8px;
+      padding: 2px 6px;
+      border-radius: 2px;
+      background: rgba(0, 229, 255, 0.2);
+      color: var(--cyan);
+      font-weight: 700;
+    }
+    .cmd-palette-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 7px 14px;
+      background: rgba(0, 10, 20, 0.85);
+      border-top: 1px solid var(--panel-border);
+      font-size: 9px;
+      color: #888;
+    }
+
+    /* Tactical Fleet Matrix Modal */
+    .fleet-modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 6, 14, 0.86);
+      backdrop-filter: blur(8px);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .fleet-modal-backdrop.active {
+      display: flex;
+    }
+    .fleet-modal-box {
+      width: 780px;
+      max-width: 95vw;
+      background: rgba(1, 14, 28, 0.96);
+      border: 1px solid var(--cyan);
+      box-shadow: 0 0 35px rgba(0, 229, 255, 0.35), inset 0 0 20px rgba(0, 229, 255, 0.08);
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .fleet-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--panel-border);
+      background: rgba(0, 20, 40, 0.7);
+    }
+    .fleet-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 16px;
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+    .fleet-card {
+      background: rgba(0, 22, 44, 0.65);
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .fleet-card:hover {
+      border-color: rgba(0, 229, 255, 0.6);
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.15);
+    }
+    .fleet-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(0, 229, 255, 0.15);
+      padding-bottom: 6px;
+    }
+    .fleet-card-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-display);
+    }
+    .fleet-stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 9.5px;
+      color: #888;
+    }
+    .fleet-stat-val {
+      color: #ccd6f6;
+      font-family: monospace;
     }
 
     /* Center Bottom Tactical Schematics Row (Batmobile + Global Radar Map) */
     .center-schematics-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      gap: 8px;
       width: 100%;
-      margin-top: 8px;
+      margin-top: 4px;
+      flex: 0 0 auto;
     }
 
     .schematic-box {
       background: rgba(0, 16, 32, 0.82);
       border: 1px solid rgba(0, 229, 255, 0.3);
-      padding: 8px 10px;
+      padding: 4px 8px;
       clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
     }
 
@@ -501,8 +840,8 @@
     .drawer-tabs {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 4px;
-      margin-bottom: 10px;
+      gap: 3px;
+      margin-bottom: 5px;
     }
 
     .drawer-tab {
@@ -510,10 +849,10 @@
       border: 1px solid var(--panel-border);
       color: rgba(0, 229, 255, 0.78);
       font-family: var(--font-display);
-      font-size: 8.5px;
+      font-size: 8px;
       font-weight: 800;
-      letter-spacing: 0.8px;
-      padding: 6px 3px;
+      letter-spacing: 0.6px;
+      padding: 4px 2px;
       text-align: center;
       cursor: pointer;
       border-radius: 2px;
@@ -534,7 +873,9 @@
 
     .drawer-content {
       display: none;
-      max-height: 455px;
+      flex: 1;
+      min-height: 0;
+      max-height: 44vh;
       overflow-y: auto;
       font-size: 11px;
       padding-right: 2px;
@@ -667,14 +1008,17 @@
     /* Alfred Voice Core Bottom Panel */
     .alfred-core {
       grid-column: 1 / -1;
-      background: rgba(1, 14, 28, 0.92);
+      background: rgba(1, 14, 28, 0.94);
       border: 1px solid var(--panel-border);
-      padding: 12px 16px;
-      clip-path: polygon(0 10px, 10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+      padding: 4px 12px 4px 12px;
+      margin-bottom: 6px;
+      clip-path: polygon(0 8px, 8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px));
       display: grid;
-      grid-template-columns: 250px 1fr 270px;
-      gap: 16px;
+      grid-template-columns: 200px 1fr 240px;
+      gap: 10px;
       align-items: center;
+      box-sizing: border-box;
+      flex-shrink: 0;
     }
 
     @media (max-width: 1100px) {
@@ -685,7 +1029,7 @@
 
     .visualizer-box {
       width: 100%;
-      height: 60px;
+      height: 36px;
       background: rgba(0, 10, 20, 0.85);
       border: 1px solid var(--panel-border);
       position: relative;
@@ -701,21 +1045,22 @@
 
     .input-bar {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       width: 100%;
-      margin-top: 6px;
-      flex-wrap: wrap;
+      margin-top: 4px;
+      align-items: center;
     }
 
     .hud-input {
       flex: 1;
-      min-width: 180px;
+      min-width: 140px;
+      height: 28px;
       background: rgba(0, 20, 40, 0.92);
       border: 1px solid var(--panel-border);
       color: #fff;
       font-family: var(--font-mono);
-      font-size: 13px;
-      padding: 8px 12px;
+      font-size: 11px;
+      padding: 4px 10px;
       border-radius: 2px;
       outline: none;
     }
@@ -761,14 +1106,20 @@
     }
 
     .alfred-speech-bubble {
-      font-size: 12px;
+      font-size: 11px;
       color: #fff;
-      line-height: 1.4;
-      min-height: 34px;
+      line-height: 1.3;
+      min-height: 22px;
       background: rgba(0, 25, 48, 0.65);
       border-left: 3px solid var(--cyan);
-      padding: 7px 12px;
+      padding: 4px 10px;
       border-radius: 0 2px 2px 0;
+    }
+
+    .alfred-core .hud-btn {
+      height: 24px;
+      font-size: 8px;
+      padding: 0 6px;
     }
 
     .status-badge {
@@ -791,26 +1142,16 @@
       height: auto;
       pointer-events: none;
       z-index: 1;
-      opacity: 0.34;
+      opacity: 0.28;
       display: flex;
       align-items: center;
       justify-content: center;
-      animation: batWatermarkGlow 6s ease-in-out infinite alternate;
     }
     .bat-watermark svg {
       width: 100%;
       height: auto;
       overflow: visible;
-    }
-    @keyframes batWatermarkGlow {
-      0% {
-        opacity: 0.26;
-        filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.35)) drop-shadow(0 0 35px rgba(0, 240, 255, 0.18));
-      }
-      100% {
-        opacity: 0.42;
-        filter: drop-shadow(0 0 24px rgba(0, 240, 255, 0.65)) drop-shadow(0 0 55px rgba(0, 240, 255, 0.32));
-      }
+      filter: drop-shadow(0 0 16px rgba(0, 240, 255, 0.25));
     }
 
     /* Smart Home Devices Grid */
@@ -967,9 +1308,267 @@
       outline: none;
       width: 100%;
     }
+
+    /* Wayne Enterprises Security Clearance Gate */
+    .wayne-security-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 100000;
+      background: radial-gradient(circle at center, rgba(3, 14, 28, 0.98) 0%, rgba(1, 6, 13, 0.99) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+    }
+    .wayne-security-card {
+      position: relative;
+      width: 100%;
+      max-width: 440px;
+      background: linear-gradient(145deg, rgba(8, 26, 46, 0.92), rgba(3, 12, 22, 0.97));
+      border: 1px solid rgba(0, 229, 255, 0.4);
+      box-shadow: 0 0 50px rgba(0, 229, 255, 0.18), inset 0 0 25px rgba(0, 229, 255, 0.06);
+      clip-path: polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px);
+      padding: 30px 24px 24px;
+      text-align: center;
+      color: #e0faff;
+      animation: wayneCardAppear 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes wayneCardAppear {
+      from { transform: scale(0.92); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .security-crest-wrap {
+      margin-bottom: 15px;
+      display: flex;
+      justify-content: center;
+    }
+    .security-bat-crest {
+      width: 80px;
+      height: 44px;
+      fill: var(--cyan);
+      filter: drop-shadow(0 0 12px rgba(0, 229, 255, 0.8));
+    }
+    .security-subhdr {
+      font-family: var(--font-display);
+      font-size: 8.5px;
+      letter-spacing: 2px;
+      color: rgba(0, 229, 255, 0.75);
+      margin-bottom: 4px;
+    }
+    .security-title {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 2.5px;
+      color: #ffffff;
+      text-shadow: 0 0 10px rgba(0, 229, 255, 0.6);
+      margin-bottom: 6px;
+    }
+    .security-protocol {
+      font-size: 9.5px;
+      letter-spacing: 1.5px;
+      color: var(--amber);
+      font-family: var(--font-mono);
+      margin-bottom: 14px;
+    }
+    .security-instructions {
+      font-size: 10px;
+      line-height: 1.5;
+      color: rgba(224, 250, 255, 0.7);
+      margin-bottom: 18px;
+    }
+    .security-input-box {
+      display: flex;
+      align-items: center;
+      background: rgba(1, 9, 18, 0.9);
+      border: 1px solid var(--cyan);
+      box-shadow: inset 0 0 10px rgba(0, 229, 255, 0.2);
+      padding: 0 12px;
+      height: 44px;
+    }
+    .security-input-icon {
+      font-size: 14px;
+      margin-right: 8px;
+      color: var(--cyan);
+    }
+    .security-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: #ffffff;
+      font-family: var(--font-mono);
+      font-size: 15px;
+      letter-spacing: 2px;
+      outline: none;
+    }
+    .security-input::placeholder {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      color: rgba(0, 229, 255, 0.35);
+    }
+    .security-eye-btn {
+      background: transparent;
+      border: none;
+      color: rgba(0, 229, 255, 0.7);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 4px;
+    }
+    .security-keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .key-btn {
+      background: rgba(4, 20, 36, 0.7);
+      border: 1px solid rgba(0, 229, 255, 0.25);
+      color: #e0faff;
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 700;
+      padding: 10px 0;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .key-btn:hover {
+      background: rgba(0, 229, 255, 0.2);
+      border-color: var(--cyan);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+    }
+    .key-btn:active {
+      transform: scale(0.95);
+    }
+    .key-action {
+      font-size: 11px;
+      color: var(--amber);
+    }
+    .security-auth-btn {
+      margin-top: 6px;
+      background: linear-gradient(90deg, rgba(0, 229, 255, 0.2), rgba(0, 160, 255, 0.3));
+      border: 1px solid var(--cyan);
+      color: #ffffff;
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      height: 42px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.2s ease;
+      box-shadow: 0 0 16px rgba(0, 229, 255, 0.3);
+    }
+    .security-auth-btn:hover {
+      background: linear-gradient(90deg, rgba(0, 229, 255, 0.4), rgba(0, 160, 255, 0.5));
+      box-shadow: 0 0 25px rgba(0, 229, 255, 0.6);
+    }
+    .security-alert-msg {
+      margin-top: 12px;
+      padding: 8px;
+      font-size: 10.5px;
+      letter-spacing: 1px;
+      font-family: var(--font-mono);
+      background: rgba(255, 34, 68, 0.15);
+      border: 1px solid var(--red);
+      color: #ff5577;
+    }
+    .security-footer-note {
+      margin-top: 15px;
+      font-size: 8.5px;
+      color: rgba(255, 255, 255, 0.4);
+      letter-spacing: 1px;
+    }
+    .security-footer-note code {
+      color: var(--cyan);
+      background: rgba(0, 229, 255, 0.1);
+      padding: 2px 4px;
+      border: 1px solid rgba(0, 229, 255, 0.3);
+    }
+    .shake-error {
+      animation: shakeErr 0.4s ease-in-out;
+      border-color: var(--red) !important;
+      box-shadow: 0 0 25px rgba(255, 34, 68, 0.6) !important;
+    }
+    @keyframes shakeErr {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-10px); }
+      40%, 80% { transform: translateX(10px); }
+    }
   </style>
 </head>
 <body>
+
+  <!-- =====================================================
+       WAYNE ENTERPRISES // LEVEL 5 SECURITY CLEARANCE GATE
+       ===================================================== -->
+  <div id="wayneSecurityModal" class="wayne-security-overlay" style="display:none;">
+    <div class="wayne-security-card" id="wayneSecurityCard">
+      <!-- Top Bat Emblem Crest -->
+      <div class="security-crest-wrap">
+        <svg viewBox="0 0 1000 560" class="security-bat-crest">
+          <path d="M 40,140 L 395,140 C 402,225 450,232 476,225 L 485,148 L 492,182 L 508,182 L 515,148 L 524,225 C 550,232 598,225 605,140 L 960,140 C 855,195 790,275 815,365 C 705,338 565,385 500,515 C 435,385 295,338 185,365 C 210,275 145,195 40,140 Z" />
+        </svg>
+      </div>
+
+      <div class="security-header">
+        <div class="security-subhdr">WAYNE ENTERPRISES // APPLIED SCIENCES DIVISION</div>
+        <div class="security-title">RESTRICTED SECURITY CLEARANCE</div>
+        <div class="security-protocol">TERMINAL PROTOCOL: LEVEL 5 CRYPTOGRAPHIC VERIFICATION</div>
+      </div>
+
+      <div class="security-body">
+        <div class="security-instructions">
+          CLASSIFIED MAINFRAME ACCESS RESTRICTED TO AUTHORIZED PERSONNEL.<br>
+          ENTER PASSCODE TO DECRYPT SYSTEM TELEMETRY, SMART CAVERN CONTROLS & NEURAL CORES.
+        </div>
+
+        <form id="securityLoginForm" onsubmit="handleSecurityLoginSubmit(event)" style="display:flex; flex-direction:column; gap:12px; width:100%;">
+          <div class="security-input-box">
+            <span class="security-input-icon">🔒</span>
+            <input 
+              type="password" 
+              id="securityPasscodeInput" 
+              class="security-input" 
+              placeholder="ENTER CLEARANCE CODE..." 
+              autocomplete="current-password"
+            />
+            <button type="button" class="security-eye-btn" onclick="togglePasscodeVisibility()" title="Toggle visibility">👁️</button>
+          </div>
+
+          <!-- Interactive Tactical Keypad for Touch / Mobile / Desktop -->
+          <div class="security-keypad">
+            <button type="button" class="key-btn" onclick="keypadPress('1')">1</button>
+            <button type="button" class="key-btn" onclick="keypadPress('2')">2</button>
+            <button type="button" class="key-btn" onclick="keypadPress('3')">3</button>
+            <button type="button" class="key-btn" onclick="keypadPress('4')">4</button>
+            <button type="button" class="key-btn" onclick="keypadPress('5')">5</button>
+            <button type="button" class="key-btn" onclick="keypadPress('6')">6</button>
+            <button type="button" class="key-btn" onclick="keypadPress('7')">7</button>
+            <button type="button" class="key-btn" onclick="keypadPress('8')">8</button>
+            <button type="button" class="key-btn" onclick="keypadPress('9')">9</button>
+            <button type="button" class="key-btn key-action" onclick="keypadClear()">CLR</button>
+            <button type="button" class="key-btn" onclick="keypadPress('0')">0</button>
+            <button type="button" class="key-btn key-action" onclick="keypadBackspace()">⌫</button>
+          </div>
+
+          <button type="submit" id="securitySubmitBtn" class="security-auth-btn">
+            <span>AUTHORIZE & DECRYPT ACCESS</span>
+            <span class="btn-arrow">▶</span>
+          </button>
+        </form>
+
+        <div id="securityAlert" class="security-alert-msg" style="display:none;"></div>
+
+        <div class="security-footer-note">
+          INITIAL PASSPHRASE: <code>batcomputer2026</code> (CONFIGURABLE VIA AUTH_CONFIG.JSON)
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Outer Sci-Fi Frame Border -->
   <div class="hud-frame-border"></div>
@@ -1003,21 +1602,56 @@
           <span class="gst-label">Galactic Standard Time</span>
           <span class="gst-time" id="liveClock">00:00:00</span>
           <span class="gst-date" id="liveDate">SATURDAY, OCTOBER 31, 2026</span>
+          <div id="topNextEventTicker" class="next-event-pill" onclick="switchDrawer('calendar')" title="Click to view Tactical Agenda">
+            <span style="color:var(--cyan); font-size:9px;">⏳</span>
+            <span id="topNextEventLabel">NEXT: Syncing Agenda...</span>
+          </div>
         </div>
       </div>
 
-      <!-- BCv1.2 Top-Center Trapezoid Search Bar (Matches BCv1.2 Desktop Screenshot) -->
-      <div class="bcv-top-search-bar">
+      <!-- Interactive Fleet Node Cluster -->
+      <div class="fleet-nodes-cluster" id="fleetNodesHeader" onclick="toggleFleetModal()" title="Click to view Batcomputer Fleet Matrix">
+        <div class="fleet-node-pill" id="serverNodePill">
+          <span class="fleet-node-dot" id="serverDot"></span>
+          <span>🍏</span>
+          <span id="serverHostLabel">Mac-mini-M1</span>
+          <span class="fleet-node-role">SERVER</span>
+        </div>
+        <div class="fleet-node-pill" id="clientNodePill">
+          <span class="fleet-node-dot" id="clientDot"></span>
+          <span>🎮</span>
+          <span id="clientHostLabel">jm-gaming-pc</span>
+          <span class="fleet-node-role">CLIENT</span>
+        </div>
+      </div>
+
+      <!-- Hyprland Workspace Mini-Map Cluster -->
+      <div class="workspace-pill-cluster" id="workspacePillCluster" title="Hyprland Workspaces (Click to switch)">
+        <span style="font-size:7.5px; color:rgba(0,229,255,0.7); font-weight:700; padding:0 2px;">WS</span>
+        <button class="ws-btn" id="wsBtn1" onclick="switchHyprWorkspace('1')">1</button>
+        <button class="ws-btn active" id="wsBtn2" onclick="switchHyprWorkspace('2')">2</button>
+      </div>
+
+      <!-- WirePlumber Master Audio Cluster -->
+      <div class="audio-control-cluster" id="audioControlCluster" title="WirePlumber Audio Control">
+        <button class="audio-icon-btn" id="audioMuteBtn" onclick="toggleLocalAudioMute()" title="Mute / Unmute Master Audio">🔊</button>
+        <input type="range" id="audioVolumeSlider" min="0" max="100" value="100" class="hud-slider" oninput="setLocalAudioVolume(this.value)" title="Volume Slider" />
+        <span id="audioVolPct" style="font-size:8.5px; color:var(--cyan); min-width:24px; font-family:var(--font-mono);">100%</span>
+        <button class="hud-btn" id="audioSinkBtn" style="height:18px; font-size:7.5px; padding:0 4px;" onclick="cycleLocalAudioSink()" title="Switch Audio Output Device">🎧 USB</button>
+      </div>
+
+      <!-- BCv1.2 Top-Center Trapezoid Search Bar (Click or Ctrl+K opens Command Palette) -->
+      <div class="bcv-top-search-bar" onclick="openCommandPalette()" style="cursor:pointer;" title="Press Ctrl+K or Super+B to open Tactical Command Palette">
         <span style="color:var(--cyan); font-size:12px;">🔍</span>
-        <input type="text" id="topUniversalSearch" placeholder="Search Local Files, Apps, Web, or Ask 'Puter..." onkeydown="if(event.key==='Enter') executeTopUniversalSearch()" />
-        <button class="bcv-mini-act" onclick="executeTopUniversalSearch()">GO</button>
+        <input type="text" id="topUniversalSearch" placeholder="Search Files, Apps, Smart Home, or ask 'Puter (Ctrl+K)..." readonly style="cursor:pointer;" />
+        <button class="bcv-mini-act" onclick="openCommandPalette(); event.stopPropagation();">COMMAND</button>
       </div>
 
       <div class="top-controls-cluster">
         <div>
           <span style="font-size:9px; color:rgba(0,229,255,0.75);">BRAIN:</span>
           <select id="modelSelect" class="header-select" onchange="changeModel(this.value)">
-            <option value="no-think/kr/claude-haiku-4.5">Claude Haiku 4.5 (0.7s)</option>
+            <option value="antigravity/gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Ultra-Fast)</option>
           </select>
         </div>
         <div>
@@ -1028,6 +1662,9 @@
         </div>
         <button id="desktopOverrideBtn" class="hud-btn" style="height:26px; font-size:9px; padding:0 10px; border-color:var(--green); color:var(--green);" onclick="toggleDesktopOverrideMode()" title="Override your full desktop with BCv1.2 Shell (F11)">
           🖥️ DESKTOP SHELL
+        </button>
+        <button id="lockTerminalBtn" class="hud-btn" style="height:26px; font-size:9px; padding:0 8px; border-color:var(--amber); color:var(--amber);" onclick="lockTerminal()" title="Lock Batcomputer Terminal (Clearance Level 5)">
+          🔒 LOCK
         </button>
       </div>
     </div>
@@ -1093,7 +1730,7 @@
       </div>
 
       <!-- Left Panels Stack -->
-      <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="display:flex; flex-direction:column; gap:8px; min-height:0; overflow-y:auto; padding-right:2px;">
 
         <!-- Local Host Hardware Temps (CPU, GPU, NVMe, Fans), Drives & Beszel Fleet -->
         <div class="panel">
@@ -1191,6 +1828,29 @@
             <button class="hud-btn" style="flex:1; font-size:8.5px; height:24px; padding:0 4px;" onclick="controlDevice('light', 'toggle', 'light.luz_sala')">SALA</button>
             <button class="hud-btn" style="flex:1; font-size:8.5px; height:24px; padding:0 4px;" onclick="controlDevice('light', 'toggle', 'light.home_theater')">THEATER</button>
           </div>
+
+          <!-- Batcave Media Console (Sonos Arc & BRAVIA TV) -->
+          <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--panel-border);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <span style="font-size:9.5px; color:var(--cyan); font-weight:700;">🔊 SONOS ARC AUDIO</span>
+              <span id="sonosStateBadge" style="font-size:8.5px; color:var(--green); font-weight:700;">IDLE</span>
+            </div>
+            <div style="font-size:8.5px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:5px;" id="mediaNowPlayingTitle">
+              Source: Sonos Arc Home Theater
+            </div>
+            <!-- Playback Controls -->
+            <div style="display:flex; gap:4px; margin-bottom:6px;">
+              <button class="hud-btn" style="flex:1.2; height:23px; font-size:8.5px;" onclick="controlDevice('media_player', 'media_play_pause', 'media_player.sonos_home_theater')">⏯️ PLAY/PAUSE</button>
+              <button class="hud-btn" style="flex:0.9; height:23px; font-size:8.5px;" id="sonosNightBtn" onclick="toggleSonosSwitch('night_sound')">🌙 NIGHT</button>
+              <button class="hud-btn" style="flex:1; height:23px; font-size:8.5px;" id="sonosSpeechBtn" onclick="toggleSonosSwitch('speech_enhancement')">🗣️ SPEECH</button>
+            </div>
+            <!-- Interactive Volume Slider -->
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:8px; color:rgba(0,229,255,0.7);">VOL:</span>
+              <input type="range" id="sonosVolSlider" min="0" max="100" value="36" style="flex:1; height:4px; accent-color:var(--cyan); cursor:pointer;" oninput="updateSonosVolVal(this.value)" onchange="setSonosVolume(this.value)" />
+              <span id="sonosVolVal" style="font-size:8.5px; color:#fff; min-width:24px; text-align:right;">36%</span>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -1204,7 +1864,7 @@
       </div>
 
       <!-- Giant Central Glowing BCv1.2 Batman Emblem -->
-      <div class="center-bat-hero">
+      <div class="center-bat-hero" id="batHeroEmblem">
         <svg viewBox="0 0 1000 540" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="bcvBatFill" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -1294,7 +1954,7 @@
     </div>
 
     <!-- RIGHT COLUMN: Multi-Drawer (TOOLS, TEARDOWN, SMART HOME, AGENDA, BRAIN, MEMORY, CLONE) -->
-    <div class="panel" style="display:flex; flex-direction:column;">
+    <div class="panel" style="display:flex; flex-direction:column; min-height:0; overflow:hidden;">
       <div class="panel-header">
         <span>// TACTICAL INTELLIGENCE & TOOLS HUB</span>
         <div class="dot"></div>
@@ -1536,16 +2196,43 @@
            ===================================================== -->
       <div id="drawer-calendar" class="drawer-content">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-          <div style="font-size:10px; color:rgba(0,229,255,0.75);">// TACTICAL CALENDAR & MONTH MATRIX</div>
-          <span id="calSyncStatus" style="font-size:9px; color:var(--green);">SYNCED</span>
+          <div style="font-size:10px; color:rgba(0,229,255,0.75);">// TACTICAL CALENDAR (ICLOUD & GOOGLE MATRIX)</div>
+          <span id="calSyncStatus" style="font-size:9px; color:var(--green);">IDLE</span>
         </div>
 
         <!-- BCv1.2 Mini Month Calendar Matrix -->
         <div class="bcv-mini-cal" id="miniMonthGrid"></div>
 
-        <div class="sync-bar">
-          <input type="text" id="calUrlInput" class="sync-input" placeholder="Paste Google Calendar / iCloud .ics URL" />
-          <button class="hud-btn" style="font-size:9px; padding:0 10px; height:24px;" onclick="syncCalendarUrl()">SYNC FEED</button>
+        <div style="display:flex; flex-direction:column; gap:5px; margin: 8px 0; background: rgba(0, 15, 30, 0.6); padding: 8px; border: 1px solid var(--panel-border); border-radius: 4px;">
+          <div style="display:flex; gap:5px; align-items:center;">
+            <span style="font-size:9px; color:var(--cyan); width:68px; flex-shrink:0;">🍏 ICLOUD:</span>
+            <input type="text" id="iCloudCalUrlInput" class="sync-input" placeholder="webcal://pXX-caldav.icloud.com/... or .ics" />
+          </div>
+          <div style="display:flex; gap:5px; align-items:center;">
+            <span style="font-size:9px; color:var(--cyan); width:68px; flex-shrink:0;">🗓️ GOOGLE:</span>
+            <input type="text" id="googleCalUrlInput" class="sync-input" placeholder="https://calendar.google.com/calendar/ical/.../private-.../basic.ics" />
+          </div>
+          <div style="display:flex; gap:6px; justify-content:space-between; align-items:center; margin-top:2px;">
+            <span style="font-size:8px; color:#888;">Paste secret .ics or webcal feeds (Google: use "Secret address in iCal format")</span>
+            <div style="display:flex; gap:5px;">
+              <button class="hud-btn" style="font-size:8px; height:22px; padding:0 8px; border-color:var(--red); color:var(--red);" onclick="clearCalendarFeed()">🗑️ CLEAR</button>
+              <button class="hud-btn" style="font-size:8px; height:22px; padding:0 10px;" onclick="syncAllCalendars()">⚡ SYNC FEEDS</button>
+            </div>
+          </div>
+          <div id="calSyncAlertBox" style="display:none; font-size:8.5px; padding:4px 6px; border-radius:2px; margin-top:2px;"></div>
+        </div>
+
+        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+          <input type="text" id="calSearchInput" placeholder="🔍 Search events by course, title, or date..." style="flex:1; background:rgba(0,12,24,0.9); border:1px solid rgba(0,229,255,0.3); color:#fff; font-size:9px; padding:3px 6px; font-family:inherit;" oninput="filterCalendarEvents(this.value)" />
+          <span id="calCountBadge" style="font-size:9px; color:var(--cyan); white-space:nowrap;">0 Events</span>
+        </div>
+
+        <!-- Tactical Filter Tabs -->
+        <div style="display:flex; gap:4px; margin-bottom:5px;">
+          <button id="calTabUpcoming" class="hud-btn" style="flex:1; height:20px; font-size:8px; background:rgba(0,229,255,0.2); border-color:var(--cyan); color:var(--cyan);" onclick="setCalFilter('upcoming')">UPCOMING (<span id="calUpcomingCount">0</span>)</button>
+          <button id="calTabToday" class="hud-btn" style="flex:1; height:20px; font-size:8px;" onclick="setCalFilter('today')">TODAY (<span id="calTodayCount">0</span>)</button>
+          <button id="calTabAll" class="hud-btn" style="flex:1; height:20px; font-size:8px;" onclick="setCalFilter('all')">ALL (<span id="calAllCount">0</span>)</button>
+          <button id="calTabPast" class="hud-btn" style="flex:1; height:20px; font-size:8px;" onclick="setCalFilter('past')">PAST (<span id="calPastCount">0</span>)</button>
         </div>
 
         <div id="calendarList" style="max-height:220px; overflow-y:auto;">Loading personal calendar...</div>
@@ -1555,8 +2242,15 @@
            5. SECOND BRAIN TAB
            ===================================================== -->
       <div id="drawer-brain" class="drawer-content">
-        <div style="font-size:10px; margin-bottom:8px; color:rgba(0,229,255,0.75);">// LOCAL KNOWLEDGE VAULT (MARKDOWN)</div>
-        <div id="brainNotesList">Loading notes...</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="font-size:10px; color:rgba(0,229,255,0.75);">// LOCAL KNOWLEDGE VAULT (SECOND BRAIN)</div>
+          <button class="hud-btn" style="font-size:9px; height:22px; padding:0 8px;" onclick="loadBrainNotes()">REFRESH</button>
+        </div>
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+          <input type="text" id="quickNoteInput" class="hud-input" placeholder="📝 Quick tactical note... (Press Enter to Save)" style="font-size:10px; padding:5px 8px; flex:1;" onkeydown="if(event.key==='Enter') saveQuickNoteFromUI()" />
+          <button class="hud-btn" style="height:28px; font-size:9px; padding:0 10px;" onclick="saveQuickNoteFromUI()">SAVE</button>
+        </div>
+        <div id="brainNotesList" style="max-height:260px; overflow-y:auto;">Loading notes...</div>
       </div>
 
       <!-- =====================================================
@@ -1601,6 +2295,12 @@
           <video id="visionVideo" autoplay playsinline muted style="width:100%; max-height:150px; background:#000; border:1px solid var(--cyan); display:none; margin-bottom:6px; object-fit:cover;"></video>
           <canvas id="visionCanvas" style="display:none;"></canvas>
           <input type="text" id="visionPromptInput" class="sync-input" value="What am I looking at? Analyze this concisely." style="width:100%; margin-bottom:6px;" />
+          <div style="display:flex; gap:5px; margin-bottom:6px;">
+            <select id="visionTargetSelect" class="sync-input" style="flex:1; font-size:9px; height:26px; background:rgba(0,16,32,0.9);">
+              <option value="client">🖥️ TARGET: CLIENT SCREEN (Local Workstation)</option>
+              <option value="server">🖥️ TARGET: SERVER SCREEN (Mac Mini M1 / Server Node)</option>
+            </select>
+          </div>
           <div style="display:flex; gap:5px;">
             <button class="hud-btn" style="flex:1; height:26px; font-size:8.5px;" onclick="toggleVisionCamera()" id="visionCamBtn">📷 START CAM</button>
             <button class="hud-btn" style="flex:1; height:26px; font-size:8.5px;" onclick="captureAndAnalyzeVision('webcam')">🔍 ANALYZE CAM</button>
@@ -1681,7 +2381,101 @@
 
   <audio id="alfredAudio" style="display:none;"></audio>
 
+  <!-- =====================================================
+       TACTICAL NOTE VIEWER MODAL (Non-blocking Second Brain Reader)
+       ===================================================== -->
+  <div class="note-modal-backdrop" id="noteViewerModal" onclick="if(event.target===this) closeTacticalNoteModal()">
+    <div class="note-modal-box">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid rgba(0,229,255,0.25); background:rgba(0,18,36,0.9);">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="color:var(--cyan); font-size:14px;">📄</span>
+          <span id="noteModalTitle" style="font-family:var(--font-display); font-size:12px; font-weight:700; color:#fff;">NOTE VIEWER</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span id="noteModalWords" style="font-size:9px; color:rgba(0,229,255,0.6); font-family:var(--font-mono);">0 WORDS</span>
+          <button class="hud-btn" style="height:22px; font-size:9px; padding:0 8px;" onclick="closeTacticalNoteModal()">CLOSE [ESC]</button>
+        </div>
+      </div>
+      <div id="noteModalBody" style="padding:14px; font-size:11px; line-height:1.55; color:#d8f4ff; font-family:var(--font-mono); overflow-y:auto; max-height:60vh; white-space:pre-wrap; background:rgba(0,8,16,0.95);"></div>
+    </div>
+  </div>
+
+  <!-- =====================================================
+       TACTICAL HUD COMMAND PALETTE (Ctrl+K / Super+B)
+       ===================================================== -->
+  <div class="cmd-palette-backdrop" id="cmdPaletteModal" onclick="handlePaletteBackdropClick(event)">
+    <div class="cmd-palette-box">
+      <div class="cmd-palette-input-box">
+        <span style="color:var(--cyan); font-size:14px;">⚡</span>
+        <input type="text" id="cmdPaletteInput" placeholder="Type directive or search (e.g., 'cinema', 'steam', 'sonos 40', 'briefing')..." autocomplete="off" />
+        <span style="font-size:9.5px; color:#888; font-family:monospace; padding:2px 6px; border:1px solid rgba(0,229,255,0.3); border-radius:3px;">ESC</span>
+      </div>
+      <div class="cmd-palette-results" id="cmdPaletteResults"></div>
+      <div class="cmd-palette-footer">
+        <span><b>↑ / ↓</b> navigate &bull; <b>↵</b> execute directive &bull; <b>ESC</b> close</span>
+        <span style="color:var(--cyan); font-weight:700;">BATCOMPUTER TACTICAL LAUNCHER</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================
+       BATCOMPUTER DISTRIBUTED FLEET MATRIX MODAL
+       ===================================================== -->
+  <div class="fleet-modal-backdrop" id="fleetModalBackdrop" onclick="handleFleetBackdropClick(event)">
+    <div class="fleet-modal-box">
+      <div class="fleet-modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:13px; color:var(--cyan);">🖥️</span>
+          <span style="font-size:12px; font-weight:700; letter-spacing:1px; color:#fff;">BATCOMPUTER DISTRIBUTED FLEET MATRIX</span>
+          <span class="fleet-node-role" style="margin-left:6px;">HYBRID MESH</span>
+        </div>
+        <button class="bcv-mini-act" onclick="toggleFleetModal(false)" style="color:#aaa;">✕ ESC</button>
+      </div>
+      <div class="fleet-grid" id="fleetGridContainer">
+        <!-- Rendered dynamically -->
+      </div>
+      <div class="cmd-palette-footer">
+        <div style="display:flex; gap:12px; align-items:center;">
+          <span id="fleetLastUpdated" style="color:#888;">MESH SYNC ACTIVE</span>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="hud-btn" style="height:22px; font-size:8px; padding:0 8px;" onclick="fetchFleetStatus()">🔄 RE-PING MESH</button>
+          <button class="hud-btn" style="height:22px; font-size:8px; padding:0 8px;" onclick="toggleFleetModal(false)">CLOSE</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
+    // =====================================================
+    // VIEWPORT SCROLL LOCK (DESKTOP PINNING)
+    // =====================================================
+    const SCROLLABLE_CONTAINERS = '#localFilesListContainer, .drawer-content, #cmdPaletteResults, .panel > div[style*="overflow"]';
+
+    window.addEventListener('wheel', (e) => {
+      const scrollable = e.target && e.target.closest ? e.target.closest(SCROLLABLE_CONTAINERS) : null;
+      if (scrollable && scrollable.scrollHeight > scrollable.clientHeight) {
+        const atTop = scrollable.scrollTop <= 0 && e.deltaY < 0;
+        const atBottom = scrollable.scrollTop + scrollable.clientHeight >= scrollable.scrollHeight && e.deltaY > 0;
+        if (!atTop && !atBottom) {
+          return; // Instant smooth internal scrolling with zero DOM style recalculations
+        }
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    window.addEventListener('scroll', () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
+        window.scrollTo(0, 0);
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchmove', (e) => {
+      const scrollable = e.target && e.target.closest ? e.target.closest(SCROLLABLE_CONTAINERS) : null;
+      if (scrollable) return;
+      e.preventDefault();
+    }, { passive: false });
+
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     let audioCtx = null;
     let analyser = null;
@@ -1699,6 +2493,9 @@
         audioSource = audioCtx.createMediaElementSource(audioElement);
         audioSource.connect(analyser);
         analyser.connect(audioCtx.destination);
+        audioElement.addEventListener('play', () => startVisualizer());
+        audioElement.addEventListener('pause', () => stopVisualizer());
+        audioElement.addEventListener('ended', () => stopVisualizer());
       }
       if (audioCtx.state === 'suspended') {
         audioCtx.resume();
@@ -1706,29 +2503,273 @@
     }
 
     function playBeep(freq = 880, type = 'sine', duration = 0.07) {
-      try {
-        if (!audioCtx) audioCtx = new AudioContext();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = type;
-        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + duration);
-      } catch (e) {}
+      // Disarmed to eliminate PipeWire-Pulse audio stream timeouts that freeze the UI on click
+      return;
     }
 
-    // Oscilloscope Visualizer
-    const canvas = document.getElementById('audioVisualizer');
-    const ctx = canvas.getContext('2d');
+    // =====================================================
+    // WAYNE ENTERPRISES // SECURITY CLEARANCE GATE LOGIC
+    // =====================================================
+    let isBatcomputerAuthenticated = false;
 
-    function drawVisualizer() {
-      requestAnimationFrame(drawVisualizer);
-      canvas.width = canvas.parentElement.clientWidth;
-      canvas.height = canvas.parentElement.clientHeight;
+    // Check for token in URL query parameter (e.g. passed from native daemon or desktop shell)
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const queryToken = urlParams.get('token');
+      if (queryToken) {
+        localStorage.setItem('bat_session_token', queryToken);
+        document.cookie = `bat_session=${encodeURIComponent(queryToken)}; path=/; max-age=2592000; SameSite=Lax`;
+      }
+    } catch (e) {}
+
+    // Global fetch interceptor to automatically attach authorization token to all API calls
+    const _nativeFetch = window.fetch;
+    window.fetch = async function(resource, init = {}) {
+      init = init || {};
+      init.headers = init.headers || {};
+      const token = localStorage.getItem('bat_session_token');
+      if (token) {
+        if (init.headers instanceof Headers) {
+          if (!init.headers.has('Authorization')) {
+            init.headers.set('Authorization', 'Bearer ' + token);
+          }
+        } else if (Array.isArray(init.headers)) {
+          let hasAuth = false;
+          for (let p of init.headers) {
+            if (p[0] && p[0].toLowerCase() === 'authorization') hasAuth = true;
+          }
+          if (!hasAuth) init.headers.push(['Authorization', 'Bearer ' + token]);
+        } else {
+          let hasAuth = false;
+          for (let k in init.headers) {
+            if (k.toLowerCase() === 'authorization') hasAuth = true;
+          }
+          if (!hasAuth) init.headers['Authorization'] = 'Bearer ' + token;
+        }
+      }
+      try {
+        const response = await _nativeFetch(resource, init);
+        if (response.status === 401) {
+          const resUrl = typeof resource === 'string' ? resource : (resource ? resource.url : '');
+          if (!resUrl.includes('/api/auth/')) {
+            showWayneSecurityModal(true);
+          }
+        }
+        return response;
+      } catch (err) {
+        throw err;
+      }
+    };
+
+    function showWayneSecurityModal(show) {
+      const modal = document.getElementById('wayneSecurityModal');
+      if (!modal) return;
+      if (show) {
+        isBatcomputerAuthenticated = false;
+        modal.style.display = 'flex';
+        modal.style.opacity = '1';
+        modal.style.visibility = 'visible';
+        const input = document.getElementById('securityPasscodeInput');
+        if (input) {
+          input.value = '';
+          input.focus();
+        }
+        const alert = document.getElementById('securityAlert');
+        if (alert) alert.style.display = 'none';
+      } else {
+        isBatcomputerAuthenticated = true;
+        modal.style.opacity = '0';
+        setTimeout(() => {
+          modal.style.display = 'none';
+        }, 350);
+      }
+    }
+
+    async function checkAuthStatus() {
+      try {
+        const res = await _nativeFetch('/api/auth/status', {
+          headers: {
+            'Authorization': 'Bearer ' + (localStorage.getItem('bat_session_token') || '')
+          }
+        });
+        const data = await res.json();
+        if (data.authenticated) {
+          showWayneSecurityModal(false);
+          onAuthSuccess(false);
+        } else {
+          showWayneSecurityModal(true);
+        }
+      } catch (e) {
+        showWayneSecurityModal(true);
+      }
+    }
+
+    async function handleSecurityLoginSubmit(e) {
+      if (e) e.preventDefault();
+      const input = document.getElementById('securityPasscodeInput');
+      const alertEl = document.getElementById('securityAlert');
+      const card = document.getElementById('wayneSecurityCard');
+      const pass = input ? input.value.trim() : '';
+
+      if (!pass) {
+        if (alertEl) {
+          alertEl.innerText = '⚠️ ENTER SECURITY PASSPHRASE';
+          alertEl.style.display = 'block';
+        }
+        return;
+      }
+
+      initAudio();
+      playBeep(980, 'sine', 0.05);
+
+      try {
+        const res = await _nativeFetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pass })
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          localStorage.setItem('bat_session_token', data.token);
+          document.cookie = `bat_session=${encodeURIComponent(data.token)}; path=/; max-age=2592000; SameSite=Lax`;
+          if (alertEl) {
+            alertEl.style.display = 'block';
+            alertEl.style.background = 'rgba(0, 255, 136, 0.15)';
+            alertEl.style.borderColor = 'var(--green)';
+            alertEl.style.color = '#00ff88';
+            alertEl.innerText = 'ACCESS GRANTED // CLEARANCE VERIFIED: MASTER RAMOS';
+          }
+          playBeep(1320, 'triangle', 0.12);
+          setTimeout(() => {
+            showWayneSecurityModal(false);
+            onAuthSuccess(true);
+          }, 450);
+        } else {
+          if (card) {
+            card.classList.remove('shake-error');
+            void card.offsetWidth;
+            card.classList.add('shake-error');
+          }
+          playBeep(320, 'sawtooth', 0.2);
+          if (alertEl) {
+            alertEl.style.display = 'block';
+            alertEl.style.background = 'rgba(255, 34, 68, 0.15)';
+            alertEl.style.borderColor = 'var(--red)';
+            alertEl.style.color = '#ff5577';
+            alertEl.innerText = data.detail || 'ACCESS DENIED: INVALID CLEARANCE CODE';
+          }
+          if (input) {
+            input.value = '';
+            input.focus();
+          }
+        }
+      } catch (err) {
+        if (alertEl) {
+          alertEl.style.display = 'block';
+          alertEl.innerText = 'COMMUNICATION FAILURE WITH MAINFRAME';
+        }
+      }
+    }
+
+    function onAuthSuccess(freshLogin) {
+      loadConfigOptions();
+    loadCalendarAgenda();
+      fetchTelemetry();
+      fetchBeszelStatus();
+      fetchLocalDesktopStatus();
+      if (freshLogin) {
+        const out = document.getElementById('alfredOutput');
+        if (out) out.innerText = '"Security clearance verified. Welcome back, Master Ramos. Batcomputer online."';
+      }
+    }
+
+    function togglePasscodeVisibility() {
+      const input = document.getElementById('securityPasscodeInput');
+      if (!input) return;
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
+
+    function keypadPress(char) {
+      playBeep(1100, 'sine', 0.03);
+      const input = document.getElementById('securityPasscodeInput');
+      if (input) {
+        input.value += char;
+        input.focus();
+      }
+    }
+
+    function keypadBackspace() {
+      playBeep(660, 'sine', 0.03);
+      const input = document.getElementById('securityPasscodeInput');
+      if (input) {
+        input.value = input.value.slice(0, -1);
+        input.focus();
+      }
+    }
+
+    function keypadClear() {
+      playBeep(440, 'sine', 0.04);
+      const input = document.getElementById('securityPasscodeInput');
+      if (input) {
+        input.value = '';
+        input.focus();
+      }
+    }
+
+    async function lockTerminal() {
+      initAudio();
+      playBeep(400, 'sawtooth', 0.15);
+      try {
+        await _nativeFetch('/api/auth/logout', { method: 'POST' });
+      } catch (e) {}
+      localStorage.removeItem('bat_session_token');
+      document.cookie = 'bat_session=; path=/; max-age=0; SameSite=Lax';
+      showWayneSecurityModal(true);
+    }
+
+    // Run auth check on initialization
+    checkAuthStatus();
+
+    // High-Efficiency Oscilloscope Visualizer
+    const canvas = document.getElementById('audioVisualizer');
+    const ctx = canvas ? canvas.getContext('2d') : null;
+    let visualizerAnimFrame = null;
+    let visualizerRunning = false;
+
+    function resizeVisualizerCanvas() {
+      if (!canvas || !canvas.parentElement) return;
+      const w = canvas.parentElement.clientWidth || 300;
+      const h = canvas.parentElement.clientHeight || 55;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      if (!visualizerRunning) {
+        drawStaticVisualizer();
+      }
+    }
+    window.addEventListener('resize', resizeVisualizerCanvas);
+
+    function drawStaticVisualizer() {
+      if (!canvas || !ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const bufferLength = 32;
+      const barWidth = (canvas.width / bufferLength) * 1.4;
+      let x = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        const barHeight = 4 + Math.sin(i * 0.45) * 3;
+        ctx.fillStyle = 'rgba(0, 229, 255, 0.4)';
+        ctx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
+        x += barWidth;
+      }
+    }
+
+    function loopVisualizer() {
+      if (!visualizerRunning || !canvas || !ctx) {
+        visualizerAnimFrame = null;
+        return;
+      }
+      visualizerAnimFrame = requestAnimationFrame(loopVisualizer);
 
       const bufferLength = analyser ? analyser.frequencyBinCount : 32;
       const dataArray = new Uint8Array(bufferLength);
@@ -1746,16 +2787,31 @@
       let x = 0;
 
       for (let i = 0; i < bufferLength; i++) {
-        const barHeight = (dataArray[i] / 255) * canvas.height;
-        const grad = ctx.createLinearGradient(0, canvas.height, 0, 0);
-        grad.addColorStop(0, '#0077ff');
-        grad.addColorStop(1, '#00e5ff');
-        ctx.fillStyle = grad;
+        const barHeight = Math.max(3, (dataArray[i] / 255) * canvas.height);
+        ctx.fillStyle = '#00e5ff';
         ctx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
         x += barWidth;
       }
     }
-    drawVisualizer();
+
+    function startVisualizer() {
+      if (visualizerRunning) return;
+      visualizerRunning = true;
+      if (!visualizerAnimFrame) {
+        visualizerAnimFrame = requestAnimationFrame(loopVisualizer);
+      }
+    }
+
+    function stopVisualizer() {
+      visualizerRunning = false;
+      if (visualizerAnimFrame) {
+        cancelAnimationFrame(visualizerAnimFrame);
+        visualizerAnimFrame = null;
+      }
+      drawStaticVisualizer();
+    }
+
+    setTimeout(resizeVisualizerCanvas, 150);
 
     // Galactic Standard Time Clock + Mini Calendar Builder
     function updateClock() {
@@ -1796,11 +2852,12 @@
 
         if (mData.omniroute_models && mData.omniroute_models.length > 0) {
           const ogOmni = document.createElement('optgroup');
-          ogOmni.label = '⚡ OMNIROUTE (SUB-SECOND)';
+          ogOmni.label = '⚡ GEMINI MODELS (ULTRA-FAST)';
           mData.omniroute_models.forEach(m => {
             const opt = document.createElement('option');
             opt.value = m;
-            opt.innerText = m;
+            const cleanName = m.replace('antigravity/', '').replace('auto/', '');
+            opt.innerText = cleanName.toUpperCase();
             if (m === mData.current_model) opt.selected = true;
             ogOmni.appendChild(opt);
           });
@@ -1835,6 +2892,7 @@
       } catch (e) {}
     }
     loadConfigOptions();
+    loadCalendarAgenda();
 
     async function changeModel(model) {
       await fetch('/api/models/set', {
@@ -2022,10 +3080,16 @@
 
     async function syncCalendarFromTools() {
       const url = document.getElementById('toolsCalUrlInput').value.trim();
-      if (!url) return alert('Paste a valid .ics calendar URL first.');
-      document.getElementById('calUrlInput').value = url;
-      await syncCalendarUrl();
-      alert('Calendar feed synced!');
+      if (!url) return alert('Paste a valid .ics or webcal calendar URL first.');
+      if (url.includes('google.com')) {
+        const gInp = document.getElementById('googleCalUrlInput');
+        if (gInp) gInp.value = url;
+      } else {
+        const icInp = document.getElementById('iCloudCalUrlInput');
+        if (icInp) icInp.value = url;
+      }
+      switchDrawer('calendar');
+      await syncAllCalendars();
     }
 
     function openRepoTeardownFromTools() {
@@ -2072,6 +3136,7 @@
       const audio = document.getElementById('alfredAudio');
       if (!audio) return;
       isAlfredSpeaking = true;
+      updateHeroCrestState('speaking');
       if (wakeRecognizer && isWakeActive) {
         try { wakeRecognizer.stop(); } catch(e) {}
       }
@@ -2098,6 +3163,7 @@
 
       audio.onended = () => {
         isAlfredSpeaking = false;
+        updateHeroCrestState('idle');
         document.getElementById('audioState').innerText = 'STANDBY';
         const tapBtn = document.getElementById('tapPlayBtn');
         if (tapBtn) tapBtn.remove();
@@ -2141,6 +3207,25 @@
         const res = await fetch('/api/smart-home/devices');
         const data = await res.json();
         let htmlStr = '';
+
+        if (data.sonos) {
+          const s = data.sonos;
+          const isPlaying = s.state === 'playing';
+          htmlStr += `
+            <div class="device-card" style="border-left: 2px solid var(--cyan); margin-bottom:8px;">
+              <div class="device-row">
+                <span class="device-title">🔊 ${s.name || 'Sonos Arc Home Theater'}</span>
+                <span class="device-status-badge ${isPlaying ? 'badge-on' : 'badge-off'}">${(s.state || 'idle').toUpperCase()}</span>
+              </div>
+              <div style="font-size:9px; color:#888;">Entity: ${s.entity_id} | Vol: ${s.volume || 36}% | Night: ${(s.night_sound || 'off').toUpperCase()}</div>
+              <div style="display:flex; gap:6px; margin-top:6px;">
+                <button class="hud-btn" style="flex:1.2; font-size:9px; height:24px;" onclick="controlDevice('media_player', 'media_play_pause', '${s.entity_id}')">⏯️ ${isPlaying ? 'PAUSE' : 'PLAY'}</button>
+                <button class="hud-btn" style="flex:1; font-size:9px; height:24px;" onclick="toggleSonosSwitch('night_sound')">🌙 NIGHT</button>
+                <button class="hud-btn" style="flex:1; font-size:9px; height:24px;" onclick="toggleSonosSwitch('speech_enhancement')">🗣️ SPEECH</button>
+              </div>
+            </div>
+          `;
+        }
 
         const tv = data.tv || {};
         const tvIsOn = tv.state === 'on';
@@ -2259,11 +3344,451 @@
           const onCount = dData.lights.filter(l => l.state === 'on').length;
           document.getElementById('lightsSummary').innerText = onCount + ' OF ' + dData.lights.length + ' ACTIVE';
         }
+
+        if (dData.sonos) {
+          const s = dData.sonos;
+          const sBadge = document.getElementById('sonosStateBadge');
+          if (sBadge) {
+            const isPlaying = s.state === 'playing';
+            sBadge.innerText = (s.state || 'IDLE').toUpperCase();
+            sBadge.style.color = isPlaying ? 'var(--green)' : 'var(--cyan)';
+          }
+          const sSlider = document.getElementById('sonosVolSlider');
+          const sVolVal = document.getElementById('sonosVolVal');
+          if (sSlider && !sSlider.matches(':active')) {
+            sSlider.value = s.volume || 36;
+            if (sVolVal) sVolVal.innerText = (s.volume || 36) + '%';
+          }
+          sonosNightState = (s.night_sound === 'on');
+          const nightBtn = document.getElementById('sonosNightBtn');
+          if (nightBtn) {
+            nightBtn.style.borderColor = sonosNightState ? 'var(--green)' : 'var(--panel-border)';
+            nightBtn.style.color = sonosNightState ? 'var(--green)' : '#fff';
+            nightBtn.style.background = sonosNightState ? 'rgba(0,255,136,0.2)' : 'rgba(0,22,44,0.7)';
+          }
+          sonosSpeechState = (s.speech_enhancement === 'on');
+          const speechBtn = document.getElementById('sonosSpeechBtn');
+          if (speechBtn) {
+            speechBtn.style.borderColor = sonosSpeechState ? 'var(--green)' : 'var(--panel-border)';
+            speechBtn.style.color = sonosSpeechState ? 'var(--green)' : '#fff';
+            speechBtn.style.background = sonosSpeechState ? 'rgba(0,255,136,0.2)' : 'rgba(0,22,44,0.7)';
+          }
+        }
       } catch (e) {}
     }
     setInterval(fetchTelemetry, 3500);
     fetchTelemetry();
     setInterval(fetchBeszelStatus, 10000);
+
+    // =====================================================
+    // BATCAVE MEDIA CONTROLS (SONOS ARC & BRAVIA TV)
+    // =====================================================
+    let sonosNightState = false;
+    let sonosSpeechState = false;
+
+    function updateSonosVolVal(val) {
+      const lbl = document.getElementById('sonosVolVal');
+      if (lbl) lbl.innerText = val + '%';
+    }
+
+    async function setSonosVolume(val) {
+      const level = parseFloat(val) / 100.0;
+      await controlDevice('media_player', 'volume_set', 'media_player.sonos_home_theater', { volume_level: level });
+    }
+
+    async function toggleSonosSwitch(type) {
+      if (type === 'night_sound') {
+        sonosNightState = !sonosNightState;
+        const srv = sonosNightState ? 'turn_on' : 'turn_off';
+        await controlDevice('switch', srv, 'switch.sonos_home_theater_night_sound');
+      } else if (type === 'speech_enhancement') {
+        sonosSpeechState = !sonosSpeechState;
+        const srv = sonosSpeechState ? 'turn_on' : 'turn_off';
+        await controlDevice('switch', srv, 'switch.sonos_home_theater_speech_enhancement');
+      }
+    }
+
+    // =====================================================
+    // INTERACTIVE BATMAN CREST STATE ANIMATION
+    // =====================================================
+    let currentHeroCrestState = 'idle';
+
+    function updateHeroCrestState(rawState) {
+      const emblem = document.getElementById('batHeroEmblem');
+      if (!emblem) return;
+
+      const state = (rawState || 'idle').toLowerCase();
+      let normalized = 'idle';
+      if (state.includes('listen')) normalized = 'listening';
+      else if (state.includes('speak')) normalized = 'speaking';
+      else if (state.includes('process') || state.includes('transcrib') || state.includes('synthes')) normalized = 'processing';
+
+      if (currentHeroCrestState === normalized) return;
+      currentHeroCrestState = normalized;
+
+      emblem.classList.remove('listening', 'speaking', 'processing');
+      if (normalized !== 'idle') {
+        emblem.classList.add(normalized);
+      }
+    }
+
+    // =====================================================
+    // VISUAL CLIENT FLEET MATRIX (SERVER + CLIENT RIGS)
+    // =====================================================
+    let fleetDataCache = null;
+
+    async function fetchFleetStatus() {
+      const serverDot = document.getElementById('serverDot');
+      const clientDot = document.getElementById('clientDot');
+      const serverHostLabel = document.getElementById('serverHostLabel');
+      const clientHostLabel = document.getElementById('clientHostLabel');
+      const lastUpdated = document.getElementById('fleetLastUpdated');
+
+      try {
+        const t0 = performance.now();
+        const res = await fetch('/api/clients');
+        const t1 = performance.now();
+        const pingMs = Math.round(t1 - t0);
+        const data = await res.json();
+        fleetDataCache = data;
+
+        // Server Node Header Status
+        if (serverDot) {
+          serverDot.className = 'fleet-node-dot';
+          serverDot.title = `Mac-mini-M1 Core AI Server (${pingMs}ms)`;
+        }
+        if (serverHostLabel) {
+          const sName = (data.server?.hostname || 'Mac-mini-M1').replace('.local', '');
+          serverHostLabel.innerText = `${sName.toUpperCase()} (${pingMs}ms)`;
+        }
+
+        // Client Nodes Header Status
+        const clients = data.clients || [];
+        const hasActiveClient = localBridgeOnline || clients.some(c => c.online);
+        if (clientDot) {
+          clientDot.className = hasActiveClient ? 'fleet-node-dot' : 'fleet-node-dot offline';
+          clientDot.title = hasActiveClient ? 'Client Rig Online' : 'No Active Client Rig';
+        }
+        if (clientHostLabel) {
+          const activeClient = clients.find(c => c.online) || clients[0];
+          clientHostLabel.innerText = (activeClient ? activeClient.hostname : 'JM-GAMING-PC').toUpperCase();
+        }
+
+        if (lastUpdated) {
+          lastUpdated.innerText = `MESH SYNCED: ${new Date().toLocaleTimeString()} (PING ${pingMs}ms)`;
+        }
+
+        renderFleetCards(data, pingMs);
+      } catch (err) {
+        if (serverDot) serverDot.className = 'fleet-node-dot offline';
+        if (clientDot) clientDot.className = 'fleet-node-dot offline';
+        if (lastUpdated) lastUpdated.innerText = 'MESH SYNC OFFLINE';
+      }
+    }
+
+    function renderFleetCards(data, pingMs) {
+      const container = document.getElementById('fleetGridContainer');
+      if (!container) return;
+
+      const s = data.server || {};
+      const clients = data.clients || [];
+
+      let html = `
+        <div class="fleet-card">
+          <div class="fleet-card-header">
+            <div class="fleet-card-title">
+              <span class="fleet-node-dot"></span>
+              <span>🍎 ${(s.hostname || 'Mac-mini-M1').toUpperCase()}</span>
+            </div>
+            <span class="fleet-node-role">CORE SERVER</span>
+          </div>
+          <div class="fleet-stat-row">
+            <span>ROLE:</span>
+            <span class="fleet-stat-val" style="color:var(--cyan);">CENTRAL AI // DOCKER // HA</span>
+          </div>
+          <div class="fleet-stat-row">
+            <span>PLATFORM:</span>
+            <span class="fleet-stat-val">Apple Silicon (macOS ${s.platform || 'darwin'})</span>
+          </div>
+          <div class="fleet-stat-row">
+            <span>ACTIVE MODEL:</span>
+            <span class="fleet-stat-val" style="color:var(--green);">${(s.model || 'Gemini 2.5 Flash').replace('antigravity/', '')}</span>
+          </div>
+          <div class="fleet-stat-row">
+            <span>VOICE ENGINE:</span>
+            <span class="fleet-stat-val">${(s.voice || 'daniel').toUpperCase()}</span>
+          </div>
+          <div class="fleet-stat-row">
+            <span>PING / LATENCY:</span>
+            <span class="fleet-stat-val" style="color:var(--green);">${pingMs}ms (LAN/Tailscale)</span>
+          </div>
+          <div style="display:flex; gap:6px; margin-top:4px;">
+            <button class="hud-btn" style="flex:1; height:22px; font-size:8px;" onclick="switchDrawer('telemetry'); toggleFleetModal(false);">INSPECT BESZEL</button>
+            <button class="hud-btn" style="flex:1; height:22px; font-size:8px;" onclick="triggerBriefing(); toggleFleetModal(false);">RUN BRIEFING</button>
+          </div>
+        </div>
+      `;
+
+      if (clients.length === 0 && !localBridgeOnline) {
+        html += `
+          <div class="fleet-card" style="opacity:0.75;">
+            <div class="fleet-card-header">
+              <div class="fleet-card-title">
+                <span class="fleet-node-dot offline"></span>
+                <span>⚡ JM-GAMING-PC</span>
+              </div>
+              <span class="fleet-node-role" style="background:#555;">CLIENT OFFLINE</span>
+            </div>
+            <div style="font-size:10px; color:#aaa; margin:6px 0;">No active companion daemon registered. Start <code>launch-alfred.sh</code> on your client PC.</div>
+          </div>
+        `;
+      } else {
+        clients.forEach(c => {
+          const isOnline = c.online || localBridgeOnline;
+          html += `
+            <div class="fleet-card">
+              <div class="fleet-card-header">
+                <div class="fleet-card-title">
+                  <span class="fleet-node-dot ${isOnline ? '' : 'offline'}"></span>
+                  <span>⚡ ${c.hostname.toUpperCase()}</span>
+                </div>
+                <span class="fleet-node-role">${isOnline ? 'ONLINE CLIENT' : 'STANDBY'}</span>
+              </div>
+              <div class="fleet-stat-row">
+                <span>ROLE:</span>
+                <span class="fleet-stat-val" style="color:var(--cyan);">NEURAL / WAYLAND CLIENT</span>
+              </div>
+              <div class="fleet-stat-row">
+                <span>PLATFORM:</span>
+                <span class="fleet-stat-val">${(c.platform || 'linux').toUpperCase()}</span>
+              </div>
+              <div class="fleet-stat-row">
+                <span>BRIDGE URL:</span>
+                <span class="fleet-stat-val">${c.bridge_url || 'http://127.0.0.1:7778'}</span>
+              </div>
+              <div class="fleet-stat-row">
+                <span>CAPABILITIES:</span>
+                <span class="fleet-stat-val" style="font-size:8.5px; color:#00ff88;">${(c.capabilities || ['mic', 'screen', 'hotkeys']).join(', ')}</span>
+              </div>
+              <div class="fleet-stat-row">
+                <span>LAST SEEN:</span>
+                <span class="fleet-stat-val">${c.last_seen_str || 'Active now'}</span>
+              </div>
+              <div style="display:flex; gap:6px; margin-top:4px;">
+                <button class="hud-btn" style="flex:1; height:22px; font-size:8px;" onclick="switchDrawer('bio'); captureAndAnalyzeVision('screen'); toggleFleetModal(false);">SCAN SCREEN</button>
+                <button class="hud-btn" style="flex:1; height:22px; font-size:8px;" onclick="switchDrawer('files'); toggleFleetModal(false);">OPEN FILES</button>
+              </div>
+            </div>
+          `;
+        });
+      }
+
+      container.innerHTML = html;
+    }
+
+    function toggleFleetModal(forceState) {
+      const modal = document.getElementById('fleetModalBackdrop');
+      if (!modal) return;
+      const isCurrentlyActive = modal.classList.contains('active');
+      const shouldOpen = forceState !== undefined ? forceState : !isCurrentlyActive;
+      if (shouldOpen) {
+        playBeep(980, 'sine', 0.04);
+        modal.classList.add('active');
+        fetchFleetStatus();
+      } else {
+        modal.classList.remove('active');
+      }
+    }
+
+    function handleFleetBackdropClick(e) {
+      if (e.target.id === 'fleetModalBackdrop') {
+        toggleFleetModal(false);
+      }
+    }
+
+    setInterval(fetchFleetStatus, 8000);
+    fetchFleetStatus();
+    setInterval(loadCalendarAgenda, 60000);
+
+    // =====================================================
+    // TACTICAL HUD COMMAND PALETTE (Ctrl+K / Super+B)
+    // =====================================================
+    const COMMAND_PALETTE_ITEMS = [
+      { icon: '🎬', label: 'Cinema Protocol', desc: 'Living Room Lights Off, Sonos Speech, BRAVIA On', cat: 'MACRO', action: () => sendCommand('Engage cinema protocol') },
+      { icon: '🌅', label: 'Morning Tactical Briefing', desc: 'Schedule, Weather, Calendar & Priorities', cat: 'MACRO', action: () => triggerBriefing() },
+      { icon: '👁️', label: 'Vision Screen Scan', desc: 'Capture and analyze active client display', cat: 'VISION', action: () => { switchDrawer('bio'); captureAndAnalyzeVision('screen'); } },
+      { icon: '🧬', label: 'Reverse Engineer Task', desc: 'Deconstruct codebase & active window workflow', cat: 'DEV', action: () => { switchDrawer('reverse'); runReverseEngineer(); } },
+
+      { icon: '⏯️', label: 'Sonos Play / Pause', desc: 'Toggle media playback on Sonos Arc array', cat: 'MEDIA', action: () => controlDevice('media_player', 'media_play_pause', 'media_player.sonos_home_theater') },
+      { icon: '🌙', label: 'Sonos Night Sound Toggle', desc: 'Compress dynamic audio range for evening', cat: 'MEDIA', action: () => toggleSonosSwitch('night_sound') },
+      { icon: '🗣️', label: 'Sonos Speech Enhancement', desc: 'Boost dialogue clarity on Sonos Arc', cat: 'MEDIA', action: () => toggleSonosSwitch('speech_enhancement') },
+      { icon: '🔊', label: 'Set Sonos Volume 25%', desc: 'Set sound level to 25%', cat: 'MEDIA', action: () => setSonosVolume(25) },
+      { icon: '🔊', label: 'Set Sonos Volume 45%', desc: 'Set sound level to 45%', cat: 'MEDIA', action: () => setSonosVolume(45) },
+      { icon: '📺', label: 'BRAVIA 85" Power Toggle', desc: 'Toggle Sony BRAVIA TV power', cat: 'MEDIA', action: () => controlDevice('media_player', 'toggle', 'media_player.tv_sala_2') },
+
+      { icon: '💡', label: 'Extinguish All Lights', desc: 'Turn off all connected Home Assistant lights', cat: 'HOME', action: () => sendCommand('Turn off all lights') },
+      { icon: '💡', label: 'Batcave Normal Lighting', desc: 'Set comfortable ambient room lighting', cat: 'HOME', action: () => controlDevice('light', 'turn_on', 'light.dimmer_cuarto_jm', { brightness_pct: 60 }) },
+
+      { icon: '🎮', label: 'Launch Steam', desc: 'Open Steam client & game library on desktop', cat: 'LAUNCH', action: () => launchLocalDesktopApp('steam') },
+      { icon: '💬', label: 'Launch Discord', desc: 'Open Discord chat on companion desktop', cat: 'LAUNCH', action: () => launchLocalDesktopApp('discord') },
+      { icon: '🎵', label: 'Launch Spotify', desc: 'Open Spotify audio streamer', cat: 'LAUNCH', action: () => launchLocalDesktopApp('spotify') },
+      { icon: '💻', label: 'Launch Terminal (Alacritty)', desc: 'Open native Arch Linux terminal session', cat: 'LAUNCH', action: () => launchLocalDesktopApp('terminal', currentLocalDir) },
+      { icon: '🧑‍💻', label: 'Launch VS Code', desc: 'Open Visual Studio Code in project workspace', cat: 'LAUNCH', action: () => launchLocalDesktopApp('code', '/home/jmrd/.gemini/antigravity/scratch/alfred-batcomputer') },
+      { icon: '🌐', label: 'Launch Zen Web Browser', desc: 'Open web browser session', cat: 'LAUNCH', action: () => launchLocalDesktopApp('browser') },
+      { icon: '📂', label: 'Launch Nautilus Files', desc: 'Open GNOME file manager on desktop', cat: 'LAUNCH', action: () => launchLocalDesktopApp('nautilus', currentLocalDir) },
+
+      { icon: '🖥️', label: 'Open Distributed Fleet Matrix', desc: 'Inspect M1 Server and Gaming PC status', cat: 'HUD', action: () => toggleFleetModal(true) },
+      { icon: '📁', label: 'Open Files Shell Drawer', desc: 'Browse local workstation filesystem', cat: 'HUD', action: () => switchDrawer('files') },
+      { icon: '🏠', label: 'Open Smart Home Drawer', desc: 'Manage lights, thermostat, 3D printer, TV', cat: 'HUD', action: () => switchDrawer('home') },
+      { icon: '🧠', label: 'Open Brain & Memories', desc: 'Inspect Alfred vector memories and brain files', cat: 'HUD', action: () => switchDrawer('brain') },
+      { icon: '📅', label: 'Open Calendar Drawer', desc: 'View synchronized iCloud and Google agendas', cat: 'HUD', action: () => switchDrawer('calendar') },
+      { icon: '📊', label: 'Open Telemetry Drawer', desc: 'View Beszel hardware metrics and gauges', cat: 'HUD', action: () => switchDrawer('telemetry') },
+      { icon: '🪟', label: 'Hyprland: Switch to Workspace 1', desc: 'Focus Workspace 1 on primary display', cat: 'HYPRLAND', action: () => switchHyprWorkspace('1') },
+      { icon: '🪟', label: 'Hyprland: Switch to Workspace 2', desc: 'Focus Workspace 2 on primary display', cat: 'HYPRLAND', action: () => switchHyprWorkspace('2') },
+      { icon: '⛶', label: 'Hyprland: Toggle Fullscreen', desc: 'Maximize active window fullscreen', cat: 'HYPRLAND', action: () => fetch(`${LOCAL_BRIDGE_URL}/local/hyprland/dispatch`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({dispatcher: 'fullscreen', args: '1'})}) },
+      { icon: '❌', label: 'Hyprland: Close Active Window', desc: 'Close currently focused window', cat: 'HYPRLAND', action: () => fetch(`${LOCAL_BRIDGE_URL}/local/hyprland/dispatch`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({dispatcher: 'killactive', args: ''})}) },
+      { icon: '🔊', label: 'Audio: Toggle Mute', desc: 'Mute or unmute master PipeWire audio', cat: 'AUDIO', action: () => toggleLocalAudioMute() },
+      { icon: '🎧', label: 'Audio: Switch Output Sink', desc: 'Switch default audio between USB & HDMI', cat: 'AUDIO', action: () => cycleLocalAudioSink() }
+    ];
+
+    let cmdPaletteFiltered = [...COMMAND_PALETTE_ITEMS];
+    let cmdPaletteSelectedIndex = 0;
+
+    function openCommandPalette() {
+      const modal = document.getElementById('cmdPaletteModal');
+      const input = document.getElementById('cmdPaletteInput');
+      if (!modal || !input) return;
+      playBeep(1100, 'sine', 0.04);
+      modal.classList.add('active');
+      input.value = '';
+      cmdPaletteFiltered = [...COMMAND_PALETTE_ITEMS];
+      cmdPaletteSelectedIndex = 0;
+      renderCommandPaletteResults();
+      setTimeout(() => input.focus(), 60);
+    }
+
+    function closeCommandPalette() {
+      const modal = document.getElementById('cmdPaletteModal');
+      if (modal) modal.classList.remove('active');
+    }
+
+    function toggleCommandPalette() {
+      const modal = document.getElementById('cmdPaletteModal');
+      if (modal && modal.classList.contains('active')) {
+        closeCommandPalette();
+      } else {
+        openCommandPalette();
+      }
+    }
+
+    function handlePaletteBackdropClick(e) {
+      if (e.target.id === 'cmdPaletteModal') {
+        closeCommandPalette();
+      }
+    }
+
+    function renderCommandPaletteResults() {
+      const container = document.getElementById('cmdPaletteResults');
+      if (!container) return;
+
+      const query = (document.getElementById('cmdPaletteInput')?.value || '').trim();
+
+      let html = '';
+      if (cmdPaletteFiltered.length === 0 && query) {
+        html = `
+          <div class="cmd-item selected" onclick="executePaletteCustomDirective('${query.replace(/'/g, "\\'")}')">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span>⚡</span>
+              <div>
+                <div style="font-weight:700;">Execute Directive: "${query}"</div>
+                <div style="font-size:9px; color:#888;">Send text directive directly to 'Puter</div>
+              </div>
+            </div>
+            <span class="cmd-item-cat">DIRECTIVE</span>
+          </div>
+        `;
+      } else {
+        cmdPaletteFiltered.forEach((item, idx) => {
+          const isSel = idx === cmdPaletteSelectedIndex;
+          html += `
+            <div class="cmd-item ${isSel ? 'selected' : ''}" onclick="executePaletteItem(${idx})">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:14px;">${item.icon}</span>
+                <div>
+                  <div style="font-weight:600; color:#fff;">${item.label}</div>
+                  <div style="font-size:9px; color:#888;">${item.desc}</div>
+                </div>
+              </div>
+              <span class="cmd-item-cat">${item.cat}</span>
+            </div>
+          `;
+        });
+      }
+
+      container.innerHTML = html;
+      const selEl = container.querySelector('.cmd-item.selected');
+      if (selEl) selEl.scrollIntoView({ block: 'nearest' });
+    }
+
+    function filterCommandPalette(q) {
+      const query = q.toLowerCase().trim();
+      if (!query) {
+        cmdPaletteFiltered = [...COMMAND_PALETTE_ITEMS];
+      } else {
+        cmdPaletteFiltered = COMMAND_PALETTE_ITEMS.filter(item => 
+          item.label.toLowerCase().includes(query) ||
+          item.desc.toLowerCase().includes(query) ||
+          item.cat.toLowerCase().includes(query)
+        );
+      }
+      cmdPaletteSelectedIndex = 0;
+      renderCommandPaletteResults();
+    }
+
+    function executePaletteItem(idx) {
+      const item = cmdPaletteFiltered[idx];
+      closeCommandPalette();
+      if (item && item.action) {
+        item.action();
+      }
+    }
+
+    function executePaletteCustomDirective(text) {
+      closeCommandPalette();
+      if (text) {
+        sendCommand(text);
+      }
+    }
+
+    const pInput = document.getElementById('cmdPaletteInput');
+    if (pInput) {
+      pInput.addEventListener('input', (e) => filterCommandPalette(e.target.value));
+      pInput.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (cmdPaletteFiltered.length > 0) {
+            cmdPaletteSelectedIndex = (cmdPaletteSelectedIndex + 1) % cmdPaletteFiltered.length;
+            renderCommandPaletteResults();
+          }
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (cmdPaletteFiltered.length > 0) {
+            cmdPaletteSelectedIndex = (cmdPaletteSelectedIndex - 1 + cmdPaletteFiltered.length) % cmdPaletteFiltered.length;
+            renderCommandPaletteResults();
+          }
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          const query = (e.target.value || '').trim();
+          if (cmdPaletteFiltered.length > 0) {
+            executePaletteItem(cmdPaletteSelectedIndex);
+          } else if (query) {
+            executePaletteCustomDirective(query);
+          }
+        } else if (e.key === 'Escape') {
+          closeCommandPalette();
+        }
+      });
+    }
 
     // =====================================================
     // DRAWER NAVIGATION & LOCAL DESKTOP OS SHELL BRIDGE
@@ -2333,6 +3858,9 @@
         const hostLbl = document.getElementById('localFilesHostLabel');
         if (hostLbl && data.host) {
           hostLbl.innerText = `// LOCAL DESKTOP SHELL (${data.host.toUpperCase()})`;
+        }
+        if (data.state) {
+          updateHeroCrestState(data.state);
         }
 
         // Update Local Host CPU, GPU, NVMe, Fans & Top Arc Gauges
@@ -2413,9 +3941,107 @@
           dBtn.innerText = data.desktop_mode ? '🖥️ EXIT DESKTOP SHELL' : '🖥️ DESKTOP SHELL';
           dBtn.style.background = data.desktop_mode ? 'rgba(0,255,136,0.22)' : '';
         }
+        fetchLocalAudioStatus();
+        fetchHyprlandStatus();
       } catch (e) {
         localBridgeOnline = false;
       }
+    }
+
+    let _audioStatus = { volume: 100, muted: false, sinks: [] };
+
+    async function fetchLocalAudioStatus() {
+      try {
+        const res = await fetch(`${LOCAL_BRIDGE_URL}/local/audio`);
+        if (!res.ok) return;
+        const data = await res.json();
+        _audioStatus = data;
+        const volSlider = document.getElementById('audioVolumeSlider');
+        const volPct = document.getElementById('audioVolPct');
+        const muteBtn = document.getElementById('audioMuteBtn');
+        const sinkBtn = document.getElementById('audioSinkBtn');
+
+        if (volSlider && !volSlider.matches(':active')) {
+          volSlider.value = data.volume;
+        }
+        if (volPct) {
+          volPct.innerText = data.muted ? 'MUTED' : `${data.volume}%`;
+          volPct.style.color = data.muted ? 'var(--red)' : 'var(--cyan)';
+        }
+        if (muteBtn) {
+          muteBtn.innerText = data.muted ? '🔇' : (data.volume > 50 ? '🔊' : '🔉');
+          muteBtn.style.color = data.muted ? 'var(--red)' : 'var(--cyan)';
+        }
+        if (sinkBtn && data.sinks) {
+          const defSink = data.sinks.find(s => s.is_default);
+          if (defSink) {
+            const isUsb = defSink.name.toLowerCase().includes('usb') || defSink.name.toLowerCase().includes('jieli');
+            sinkBtn.innerText = isUsb ? '🎧 USB' : '🖥️ HDMI';
+            sinkBtn.title = defSink.name;
+          }
+        }
+      } catch (e) {}
+    }
+
+    async function setLocalAudioVolume(val) {
+      try {
+        const pct = parseInt(val, 10);
+        const volPct = document.getElementById('audioVolPct');
+        if (volPct) volPct.innerText = `${pct}%`;
+        await fetch(`${LOCAL_BRIDGE_URL}/local/audio`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'set_volume', value: pct })
+        });
+      } catch (e) {}
+    }
+
+    async function toggleLocalAudioMute() {
+      try {
+        await fetch(`${LOCAL_BRIDGE_URL}/local/audio`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'toggle_mute' })
+        });
+        fetchLocalAudioStatus();
+      } catch (e) {}
+    }
+
+    async function cycleLocalAudioSink() {
+      try {
+        if (!_audioStatus.sinks || _audioStatus.sinks.length < 2) return;
+        const currentDef = _audioStatus.sinks.find(s => s.is_default);
+        const nextSink = _audioStatus.sinks.find(s => !s.is_default) || _audioStatus.sinks[0];
+        if (nextSink) {
+          await fetch(`${LOCAL_BRIDGE_URL}/local/audio`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'set_sink', value: nextSink.id })
+          });
+          fetchLocalAudioStatus();
+        }
+      } catch (e) {}
+    }
+
+    async function fetchHyprlandStatus() {
+      try {
+        const res = await fetch(`${LOCAL_BRIDGE_URL}/local/hyprland`);
+        if (!res.ok) return;
+        const data = await res.json();
+      } catch (e) {}
+    }
+
+    async function switchHyprWorkspace(ws) {
+      try {
+        document.querySelectorAll('.ws-btn').forEach(b => b.classList.remove('active'));
+        const btn = document.getElementById(`wsBtn${ws}`);
+        if (btn) btn.classList.add('active');
+        await fetch(`${LOCAL_BRIDGE_URL}/local/hyprland/dispatch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dispatcher: 'workspace', args: String(ws) })
+        });
+      } catch (e) {}
     }
 
     async function loadLocalFiles(targetPath = '/home/jmrd', query = '') {
@@ -2531,6 +4157,9 @@
     async function launchLocalDesktopApp(appKey, optionalPath = '') {
       playBeep(1180, 'sine', 0.06);
       const out = document.getElementById('alfredOutput');
+      if (out) {
+        out.innerHTML = `"⚡ Launching <strong style='color:var(--cyan);'>${appKey.toUpperCase()}</strong> on your desktop, Master Ramos..."`;
+      }
       try {
         const res = await fetch(`${LOCAL_BRIDGE_URL}/local/launch`, {
           method: 'POST',
@@ -2598,7 +4227,7 @@
     // Initialize Local Desktop Files & Status on load
     fetchLocalDesktopStatus();
     loadLocalFiles('/home/jmrd');
-    setInterval(fetchLocalDesktopStatus, 2000);
+    setInterval(fetchLocalDesktopStatus, 3500);
 
     // =====================================================
     // REAL GITHUB REPOSITORY & WEB TEARDOWN
@@ -2645,22 +4274,73 @@
     // =====================================================
     // CALENDAR, BRAIN, MEMORY & VOICE CLONE HELPERS
     // =====================================================
-    async function syncCalendarUrl() {
-      const url = document.getElementById('calUrlInput').value.trim();
+    async function syncAllCalendars() {
+      const icloud_url = document.getElementById('iCloudCalUrlInput') ? document.getElementById('iCloudCalUrlInput').value.trim() : '';
+      const google_url = document.getElementById('googleCalUrlInput') ? document.getElementById('googleCalUrlInput').value.trim() : '';
+      if (!icloud_url && !google_url) {
+        return alert('Please paste an iCloud webcal link or a Google Calendar .ics address.');
+      }
       const statusEl = document.getElementById('calSyncStatus');
-      statusEl.innerText = 'SYNCING...';
+      if (statusEl) statusEl.innerText = 'SYNCING...';
+      playBeep(980, 'sine', 0.05);
+
       try {
         const res = await fetch('/api/calendar/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
+          body: JSON.stringify({ icloud_url, google_url })
         });
         const data = await res.json();
-        statusEl.innerText = `SYNCED (${data.count} EVENTS)`;
+        if (statusEl) statusEl.innerText = `SYNCED (${data.count} EVENTS)`;
         loadCalendarAgenda();
       } catch (e) {
-        statusEl.innerText = 'SYNC ERROR';
+        if (statusEl) statusEl.innerText = 'SYNC ERROR';
       }
+    }
+
+    async function clearCalendarFeed() {
+      if (!confirm('Clear all calendar events and reset feeds?')) return;
+      try {
+        await fetch('/api/calendar/clear', { method: 'POST' });
+        const icInput = document.getElementById('iCloudCalUrlInput');
+        const gInput = document.getElementById('googleCalUrlInput');
+        if (icInput) icInput.value = '';
+        if (gInput) gInput.value = '';
+        const statusEl = document.getElementById('calSyncStatus');
+        if (statusEl) statusEl.innerText = 'CLEARED';
+        loadCalendarAgenda();
+      } catch (e) {}
+    }
+
+    async function syncCalendarUrl() {
+      await syncAllCalendars();
+    }
+
+    let _allCalEvents = [];
+    let _calFilterMode = 'upcoming';
+    let _calNextEvent = null;
+
+    function setCalFilter(mode) {
+      _calFilterMode = mode;
+      const tabs = {
+        'upcoming': document.getElementById('calTabUpcoming'),
+        'today': document.getElementById('calTabToday'),
+        'all': document.getElementById('calTabAll'),
+        'past': document.getElementById('calTabPast')
+      };
+      Object.entries(tabs).forEach(([k, el]) => {
+        if (!el) return;
+        if (k === mode) {
+          el.style.background = 'rgba(0, 229, 255, 0.2)';
+          el.style.borderColor = 'var(--cyan)';
+          el.style.color = 'var(--cyan)';
+        } else {
+          el.style.background = 'rgba(0, 20, 35, 0.6)';
+          el.style.borderColor = 'rgba(0, 229, 255, 0.25)';
+          el.style.color = '#8899aa';
+        }
+      });
+      filterCalendarEvents(document.getElementById('calSearchInput') ? document.getElementById('calSearchInput').value : '');
     }
 
     async function loadCalendarAgenda() {
@@ -2668,23 +4348,120 @@
         const res = await fetch('/api/calendar');
         const data = await res.json();
         const listEl = document.getElementById('calendarList');
-        listEl.innerHTML = '';
-        if (data.config && data.config.ical_url) {
-          const inp = document.getElementById('calUrlInput');
-          if (inp && !inp.value) inp.value = data.config.ical_url;
+        if (!listEl) return;
+
+        if (data.config) {
+          const icInp = document.getElementById('iCloudCalUrlInput');
+          const gInp = document.getElementById('googleCalUrlInput');
+          if (icInp && data.config.icloud_url && !icInp.value) icInp.value = data.config.icloud_url;
+          if (gInp && data.config.google_url && !gInp.value) gInp.value = data.config.google_url;
+
+          // Status & alert box
+          const alertBox = document.getElementById('calSyncAlertBox');
+          if (alertBox) {
+            if (data.config.errors && data.config.errors.length > 0) {
+              alertBox.style.display = 'block';
+              alertBox.style.background = 'rgba(255, 68, 68, 0.15)';
+              alertBox.style.border = '1px solid rgba(255, 68, 68, 0.4)';
+              alertBox.style.color = '#ff8888';
+              alertBox.innerHTML = '⚠️ ' + data.config.errors.join('<br>⚠️ ');
+            } else if (data.config.sources && data.config.sources.length > 0) {
+              alertBox.style.display = 'block';
+              alertBox.style.background = 'rgba(0, 229, 255, 0.1)';
+              alertBox.style.border = '1px solid rgba(0, 229, 255, 0.3)';
+              alertBox.style.color = 'var(--cyan)';
+              alertBox.innerHTML = '🔗 Linked: ' + data.config.sources.join(' | ');
+            } else {
+              alertBox.style.display = 'none';
+            }
+          }
         }
-        if (!data.events || data.events.length === 0) {
-          listEl.innerHTML = '<div style="color:#888; font-size:10px;">No events scheduled.</div>';
-          return;
-        }
-        data.events.forEach(e => {
-          const div = document.createElement('div');
-          div.className = 'calendar-item';
-          const dateBadge = e.date && e.date !== 'Upcoming' ? '<span style="color:var(--cyan);">[' + e.date + '] </span>' : '';
-          div.innerHTML = '<strong>⏰ ' + dateBadge + e.time + ' - ' + e.title + '</strong><br><span style="color:var(--green);">' + (e.priority || 'Personal') + '</span> // ' + (e.location || 'Batcave');
-          listEl.appendChild(div);
-        });
+
+        _allCalEvents = data.events || [];
+        _calNextEvent = data.next_event || null;
+
+        // Update counts
+        const upCount = data.upcoming_count ?? _allCalEvents.filter(e => !e.is_past).length;
+        const todCount = data.today_count ?? _allCalEvents.filter(e => e.is_today).length;
+        const pastCount = data.past_count ?? _allCalEvents.filter(e => e.is_past).length;
+
+        const elUp = document.getElementById('calUpcomingCount');
+        const elTod = document.getElementById('calTodayCount');
+        const elAll = document.getElementById('calAllCount');
+        const elPast = document.getElementById('calPastCount');
+        if (elUp) elUp.innerText = upCount;
+        if (elTod) elTod.innerText = todCount;
+        if (elAll) elAll.innerText = _allCalEvents.length;
+        if (elPast) elPast.innerText = pastCount;
+
+        updateNextEventTicker(_allCalEvents, _calNextEvent);
+        filterCalendarEvents(document.getElementById('calSearchInput') ? document.getElementById('calSearchInput').value : '');
       } catch (e) {}
+    }
+
+    function filterCalendarEvents(query) {
+      const listEl = document.getElementById('calendarList');
+      const badgeEl = document.getElementById('calCountBadge');
+      if (!listEl) return;
+      listEl.innerHTML = '';
+
+      const q = (query || '').toLowerCase().trim();
+      
+      // Step 1: filter by mode
+      let subset = _allCalEvents;
+      if (_calFilterMode === 'upcoming') {
+        subset = _allCalEvents.filter(e => !e.is_past);
+      } else if (_calFilterMode === 'today') {
+        subset = _allCalEvents.filter(e => e.is_today);
+      } else if (_calFilterMode === 'past') {
+        subset = _allCalEvents.filter(e => e.is_past);
+      }
+
+      // Step 2: filter by query
+      const filtered = q ? subset.filter(e => 
+        (e.title || '').toLowerCase().includes(q) ||
+        (e.date || '').toLowerCase().includes(q) ||
+        (e.location || '').toLowerCase().includes(q) ||
+        (e.source || '').toLowerCase().includes(q)
+      ) : subset;
+
+      if (badgeEl) badgeEl.innerText = `${filtered.length} Events`;
+
+      if (filtered.length === 0) {
+        if (_allCalEvents.length === 0) {
+          listEl.innerHTML = '<div style="color:#888; font-size:10px; padding:8px 0;">No calendar events loaded.<br><span style="color:var(--cyan);">Paste your iCloud / Google Calendar .ics feed above to populate your tactical agenda.</span></div>';
+        } else if (_calFilterMode === 'upcoming') {
+          listEl.innerHTML = '<div style="color:#888; font-size:10px; padding:12px 6px; text-align:center;">🛡️ <strong>No upcoming tactical events scheduled.</strong><br><span style="color:var(--cyan); font-size:9px;">Current agenda is clear. Switch to <em>ALL</em> or <em>PAST</em> to view archived semester records.</span></div>';
+        } else if (_calFilterMode === 'today') {
+          listEl.innerHTML = '<div style="color:#888; font-size:10px; padding:12px 6px; text-align:center;">📅 <strong>No events scheduled for today.</strong></div>';
+        } else {
+          listEl.innerHTML = '<div style="color:#888; font-size:10px; padding:8px 0;">No events matching search query.</div>';
+        }
+        return;
+      }
+
+      filtered.forEach(e => {
+        const div = document.createElement('div');
+        div.className = 'calendar-item';
+        const src = e.source || e.priority || 'Personal';
+        const isGoogle = src.toLowerCase().includes('google');
+        const isICloud = src.toLowerCase().includes('icloud');
+        const badgeColor = isGoogle ? '#ffaa00' : (isICloud ? 'var(--cyan)' : 'var(--green)');
+        const srcBadge = `<span style="display:inline-block; font-size:8px; padding:1px 4px; border-radius:2px; background:rgba(0,229,255,0.12); color:${badgeColor}; margin-right:4px;">${src.toUpperCase()}</span>`;
+        
+        let statusBadge = '';
+        if (e.is_today) {
+          statusBadge = '<span style="display:inline-block; font-size:8px; padding:1px 4px; border-radius:2px; background:rgba(0,255,136,0.2); color:var(--green); font-weight:bold; margin-right:4px;">TODAY</span>';
+        } else if (e.is_past) {
+          statusBadge = '<span style="display:inline-block; font-size:8px; padding:1px 4px; border-radius:2px; background:rgba(255,255,255,0.06); color:#778899; margin-right:4px;">PAST</span>';
+        } else {
+          statusBadge = '<span style="display:inline-block; font-size:8px; padding:1px 4px; border-radius:2px; background:rgba(0,229,255,0.18); color:var(--cyan); margin-right:4px;">UPCOMING</span>';
+        }
+
+        const dateBadge = e.date && e.date !== 'Upcoming' ? `<span style="color:var(--cyan);">[${e.date}] </span>` : '';
+        div.innerHTML = `${statusBadge}${srcBadge}<strong>⏰ ${dateBadge}${e.time} - ${e.title}</strong><br><span style="color:#99aab5; font-size:9px;">📍 ${e.location || 'Virtual / No Location'}</span>`;
+        listEl.appendChild(div);
+      });
     }
 
     async function loadBrainNotes() {
@@ -2700,11 +4477,62 @@
           div.onclick = async () => {
             const r = await fetch('/api/brain/file?name=' + encodeURIComponent(n.name));
             const noteData = await r.json();
-            alert('--- ' + noteData.name + ' ---\n\n' + noteData.content);
+            showTacticalNoteModal(noteData.name, noteData.content);
           };
           listEl.appendChild(div);
         });
       } catch (e) {}
+    }
+
+    function showTacticalNoteModal(name, content) {
+      const modal = document.getElementById('noteViewerModal');
+      const titleEl = document.getElementById('noteModalTitle');
+      const bodyEl = document.getElementById('noteModalBody');
+      const wordsEl = document.getElementById('noteModalWords');
+      if (!modal || !bodyEl) return;
+      if (titleEl) titleEl.innerText = `📄 ${name}`;
+      bodyEl.textContent = content || '(Empty Note)';
+      const words = (content || '').trim().split(/\s+/).filter(Boolean).length;
+      if (wordsEl) wordsEl.innerText = `${words} WORDS // ${(content || '').length} BYTES`;
+      modal.style.display = 'flex';
+    }
+
+    function closeTacticalNoteModal() {
+      const modal = document.getElementById('noteViewerModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function saveQuickNoteFromUI() {
+      const inp = document.getElementById('quickNoteInput');
+      if (!inp) return;
+      const val = inp.value.trim();
+      if (!val) return;
+      try {
+        await fetch(`${LOCAL_BRIDGE_URL}/local/note`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: val })
+        });
+        inp.value = '';
+        loadBrainNotes();
+      } catch (e) {
+        console.error('Failed to save quick note:', e);
+      }
+    }
+
+    function updateNextEventTicker(events, explicitNext) {
+      const ticker = document.getElementById('topNextEventLabel');
+      if (!ticker) return;
+      
+      const next = explicitNext || (events || []).find(e => !e.is_past);
+      if (!next) {
+        ticker.innerText = 'NEXT: Tactical Agenda Clear (0 Upcoming)';
+        return;
+      }
+      const timeStr = next.time || 'All Day';
+      const titleStr = next.title || 'Event';
+      const datePrefix = next.is_today ? 'TODAY' : (next.date ? `[${next.date}]` : '');
+      ticker.innerText = `NEXT: ${datePrefix} ${timeStr} — ${titleStr}`.trim();
     }
 
     async function loadMemories() {
@@ -2767,6 +4595,7 @@
         if (data.success) {
           statusEl.innerHTML = `<span style="color:var(--green);">✓ Cloned! ID: ${data.profile_id}</span>`;
           loadConfigOptions();
+    loadCalendarAgenda();
         }
       } catch (e) {
         statusEl.innerHTML = `<span style="color:#ff4444;">Error: ${e.message}</span>`;
@@ -2784,6 +4613,7 @@
       const outputEl = document.getElementById('alfredOutput');
       outputEl.innerText = 'Processing directive, Master Ramos...';
       document.getElementById('audioState').innerText = 'PROCESSING';
+      updateHeroCrestState('processing');
       const t0 = performance.now();
 
       try {
@@ -2859,6 +4689,7 @@
         audio.currentTime = 0;
       }
       isAlfredSpeaking = false;
+      updateHeroCrestState('idle');
       document.getElementById('audioState').innerText = 'STANDBY';
       fetch('/api/audio/stop', { method: 'POST' }).catch(() => {});
     }
@@ -2915,11 +4746,14 @@
       const out = document.getElementById('visionOutput');
       const alfredOut = document.getElementById('alfredOutput');
       const prompt = document.getElementById('visionPromptInput').value.trim() || 'What am I looking at?';
-      out.innerText = `⚡ Analyzing ${mode === 'webcam' ? 'live webcam frame' : 'screen capture'} via OmniRoute multimodal vision...`;
-      alfredOut.innerText = 'Inspecting visual feed, Master Ramos...';
+      const targetDevice = document.getElementById('visionTargetSelect') ? document.getElementById('visionTargetSelect').value : 'client';
 
       let imageB64 = null;
+      let clientHostName = null;
+
       if (mode === 'webcam') {
+        out.innerText = `⚡ Analyzing live webcam frame via OmniRoute Gemini Vision...`;
+        alfredOut.innerText = 'Inspecting camera feed, Master Ramos...';
         const video = document.getElementById('visionVideo');
         if (!visionStream || video.style.display === 'none') {
           await toggleVisionCamera();
@@ -2930,17 +4764,71 @@
         cv.height = video.videoHeight || 480;
         cv.getContext('2d').drawImage(video, 0, 0, cv.width, cv.height);
         imageB64 = cv.toDataURL('image/jpeg', 0.8);
+      } else {
+        // Screen mode: distinguish Client Screen vs Server Screen
+        if (targetDevice === 'client') {
+          out.innerText = `⚡ Capturing client display on local workstation...`;
+          alfredOut.innerText = 'Capturing local client screen, Master Ramos...';
+
+          // 1. Try local bridge daemon on client machine (zero permission prompts)
+          try {
+            const bRes = await fetch(`${LOCAL_BRIDGE_URL}/local/screenshot`);
+            if (bRes.ok) {
+              const bData = await bRes.json();
+              if (bData.ok && bData.image) {
+                imageB64 = bData.image;
+                clientHostName = bData.host || 'client';
+              }
+            }
+          } catch (e) {
+            console.log('Local bridge screenshot unavailable, checking browser media:', e);
+          }
+
+          // 2. Fallback to browser getDisplayMedia if remote client browser
+          if (!imageB64 && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+            try {
+              out.innerText = '⚡ Requesting client screen capture via browser window picker...';
+              const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false });
+              const track = displayStream.getVideoTracks()[0];
+              const video = document.createElement('video');
+              video.srcObject = displayStream;
+              await video.play();
+              const cv = document.getElementById('visionCanvas');
+              cv.width = video.videoWidth || 1920;
+              cv.height = video.videoHeight || 1080;
+              cv.getContext('2d').drawImage(video, 0, 0, cv.width, cv.height);
+              track.stop();
+              imageB64 = cv.toDataURL('image/jpeg', 0.85);
+              clientHostName = 'browser_client';
+            } catch (dmErr) {
+              out.innerText = 'Client screen capture cancelled: ' + dmErr.message;
+              return;
+            }
+          }
+        } else {
+          // Target: Server Screen (Mac Mini M1 / Host)
+          out.innerText = `⚡ Requesting central server screen capture...`;
+          alfredOut.innerText = 'Inspecting central server display, Master Ramos...';
+          imageB64 = null; // server will capture its own display
+        }
       }
 
       try {
         const res = await fetch('/api/vision', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: imageB64, prompt, skip_tts: true })
+          body: JSON.stringify({
+            image: imageB64,
+            prompt: prompt,
+            client_host: clientHostName,
+            target: targetDevice,
+            skip_tts: true
+          })
         });
         const data = await res.json();
-        out.innerText = `✓ [${data.source || mode} // ${data.latency_ms || 0}ms]: ${data.reply}`;
-        alfredOut.innerHTML = `"${data.reply}" <span style="font-size:9px; color:var(--green);">[👁️ ${data.latency_ms || 0}ms]</span>`;
+        const displaySource = data.source ? data.source.toUpperCase() : mode.toUpperCase();
+        out.innerText = `✓ [${displaySource} // ${data.latency_ms || 0}ms]: ${data.reply}`;
+        alfredOut.innerHTML = `"${data.reply}" <span style="font-size:9px; color:var(--green);">[👁️ ${displaySource} // ${data.latency_ms || 0}ms]</span>`;
         const activeVoice = document.getElementById('voiceSelect').value;
         fetch('/api/tts', {
           method: 'POST',
@@ -2954,14 +4842,37 @@
       }
     }
 
-    // Global Hotkey: Alt+Space or Ctrl+Space triggers Barge-In + MLX-Whisper Mic
+    // Global Hotkey: Alt+Space (Mic), Ctrl+K / Super+B (Command Palette), Esc (Dismiss / Barge-In)
     window.addEventListener('keydown', (e) => {
-      if ((e.altKey || e.ctrlKey) && e.code === 'Space') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        toggleCommandPalette();
+        return;
+      }
+      if ((e.metaKey || e.altKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        toggleCommandPalette();
+        return;
+      }
+      if (e.key === 'Escape') {
+        closeTacticalNoteModal();
+        const cmdPalette = document.getElementById('cmdPaletteModal');
+        if (cmdPalette && cmdPalette.classList.contains('active')) {
+          closeCommandPalette();
+          return;
+        }
+        const fleetModal = document.getElementById('fleetModalBackdrop');
+        if (fleetModal && fleetModal.classList.contains('active')) {
+          toggleFleetModal(false);
+          return;
+        }
+        if (isAlfredSpeaking) {
+          bargeInStopAudio();
+        }
+      } else if ((e.altKey || e.ctrlKey) && e.code === 'Space') {
         e.preventDefault();
         bargeInStopAudio();
         startMlxWhisperRecording();
-      } else if (e.key === 'Escape' && isAlfredSpeaking) {
-        bargeInStopAudio();
       }
     });
 
@@ -3033,6 +4944,28 @@
     async function startMlxWhisperRecording(isFollowUp = false) {
       initAudio();
       if (!isFollowUp) bargeInStopAudio();
+
+      // If connected to local daemon on desktop, trigger native PipeWire daemon mic directly!
+      if (localBridgeOnline) {
+        try {
+          await fetch(`${LOCAL_BRIDGE_URL}/local/talk`, { method: 'POST' });
+          const micBtn = document.getElementById('micBtn');
+          if (micBtn) {
+            micBtn.classList.add('recording');
+            micBtn.innerText = 'LISTENING...';
+            setTimeout(() => {
+              micBtn.classList.remove('recording');
+              micBtn.innerText = 'MIC (MLX)';
+            }, 6000);
+          }
+          const outputEl = document.getElementById('alfredOutput');
+          if (outputEl) outputEl.innerText = 'Listening to your command via desktop daemon, Master Ramos...';
+          return;
+        } catch (e) {
+          console.warn('Local bridge /local/talk failed, falling back to browser media:', e);
+        }
+      }
+
       if (mediaRecorder && mediaRecorder.state === 'recording') {
         mediaRecorder.stop();
         return;
@@ -3055,7 +4988,7 @@
         let hasSpoken = false;
         let silenceStart = 0;
         const startTime = Date.now();
-        const maxDurationMs = isFollowUp ? 10000 : 7500;
+        const maxDurationMs = isFollowUp ? 35000 : 30000;
 
         const checkVad = () => {
           if (!mediaRecorder || mediaRecorder.state !== 'recording') {
@@ -3074,8 +5007,8 @@
             silenceStart = 0;
           } else if (hasSpoken) {
             if (!silenceStart) silenceStart = Date.now();
-            else if (Date.now() - silenceStart > 650) {
-              // User finished speaking! Stop immediately for ~160ms MLX-Whisper transcription
+            else if (Date.now() - silenceStart > 1650) {
+              // User finished speaking! 1.65s pause allows natural breathing and complex sentences
               mediaRecorder.stop();
               return;
             }
@@ -3101,10 +5034,12 @@
           // If this was follow-up listening and user did not speak, just quietly close window
           if (isFollowUp && !hasSpoken) {
             closeFollowUpWindow();
+            updateHeroCrestState('idle');
             return;
           }
 
           closeFollowUpWindow();
+          updateHeroCrestState('processing');
           const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
           const fd = new FormData();
           fd.append('file', audioBlob, 'command.wav');
@@ -3146,13 +5081,19 @@
         };
 
         mediaRecorder.start();
+        updateHeroCrestState('listening');
         requestAnimationFrame(checkVad);
         if (!isFollowUp) playBeep(880, 'sine', 0.07);
         micBtn.classList.add('recording');
         micBtn.innerText = isFollowUp ? 'LISTENING (10s)...' : 'SPEAK NOW...';
         if (!isFollowUp) document.getElementById('audioState').innerText = 'LISTENING';
       } catch (err) {
-        if (!isFollowUp) alert('Microphone access requires HTTPS: ' + err.message);
+        console.warn('Browser mic access unavailable:', err);
+        const outputEl = document.getElementById('alfredOutput');
+        if (outputEl) outputEl.innerText = 'Browser microphone permission not granted. Routing voice via daemon mic...';
+        if (localBridgeOnline) {
+          fetch(`${LOCAL_BRIDGE_URL}/local/talk`, { method: 'POST' }).catch(() => {});
+        }
       }
     }
 

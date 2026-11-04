@@ -31,7 +31,7 @@ import tempfile
 import threading
 import subprocess
 import fcntl
-import datetime
+from datetime import datetime, date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import deque
 from pathlib import Path
@@ -193,6 +193,7 @@ class AlfredBackgroundDaemon:
         self.force_next_utterance = False
         self.force_stop_recording = False
         self.muted = False
+        self._shutdown_cancelled = False
         self.running = True
         self.current_mic_name = "Default Input"
         self.current_mic_is_real = True
@@ -429,6 +430,59 @@ class AlfredBackgroundDaemon:
             self._speak_short_reply(reply_msg)
             return
 
+        # Check if user cancelled shutdown
+        if any(k in low_dir for k in ("cancel shutdown", "abort shutdown", "stop shutdown", "don't turn off", "dont turn off")):
+            self._shutdown_cancelled = True
+            reply = "Poweroff sequence aborted, Master Ramos. Systems remaining active."
+            self.emit_ui(state="SPEAKING", user_text=directive, reply_text=reply)
+            self._speak_short_reply(reply)
+            return
+
+        # Check if user invoked the Evening Shutdown sequence ("Goodnight Computer" / "Computer, turn yourself off")
+        shutdown_triggers = (
+            "goodnight computer", "goodnight 'puter", "goodnight alfred", "good night computer", "good night 'puter",
+            "computer turn yourself off", "computer, turn yourself off", "turn yourself off",
+            "shut down the batcomputer", "shutdown the batcomputer", "shut down my pc", "shutdown my pc",
+            "turn off the batcomputer", "turn off the pc", "bedtime shutdown", "bedtime debrief"
+        )
+        if any(trig in low_dir for trig in shutdown_triggers):
+            print(f"🌙 [Bedtime Shutdown]: Directive detected: \"{directive}\"")
+            self.execute_evening_shutdown(directive)
+            return
+
+        # Check if user asked to expand the morning briefing or requested a briefing
+        if any(k in low_dir for k in ("expand", "fleet details", "tell me more", "more info", "detailed briefing", "full fleet")):
+            print(f"📊 [Detailed Briefing]: Directive detected: \"{directive}\"")
+            try:
+                b_res = self.session.get(f"{self.server_url}/api/briefing?mode=detailed&skip_tts=false", timeout=12).json()
+                d_reply = b_res.get("reply", "")
+                d_audio = b_res.get("audio_url")
+                self.emit_ui(state="SPEAKING", user_text=directive, reply_text=d_reply)
+                self.notifier.notify("📊 Batcomputer Detailed Fleet Briefing", d_reply, timeout_ms=12000)
+                if d_audio:
+                    self.play_audio_url(d_audio)
+                else:
+                    self._speak_short_reply(d_reply)
+                return
+            except Exception as e:
+                print(f"Error fetching detailed briefing: {e}")
+
+        if any(k in low_dir for k in ("give me a briefing", "tactical briefing", "morning report", "status report", "system briefing", "daily briefing")):
+            print(f"🌅 [Tactical Briefing]: Directive detected: \"{directive}\"")
+            try:
+                b_res = self.session.get(f"{self.server_url}/api/briefing?mode=hybrid&skip_tts=false", timeout=12).json()
+                b_reply = b_res.get("reply", "")
+                b_audio = b_res.get("audio_url")
+                self.emit_ui(state="SPEAKING", user_text=directive, reply_text=b_reply)
+                self.notifier.notify("🌅 'Puter Tactical Briefing", b_reply, timeout_ms=10000)
+                if b_audio:
+                    self.play_audio_url(b_audio)
+                else:
+                    self._speak_short_reply(b_reply)
+                return
+            except Exception as e:
+                print(f"Error fetching tactical briefing: {e}")
+
         # Check if user asked 'Puter to inspect their local screen
         if any(k in directive.lower() for k in ["look at my screen", "what is on my screen", "what's on my screen", "analyze my screen", "read my screen", "look at this error"]):
             print(f"👁️ [Screen Vision]: Capturing screen for directive: \"{directive}\"")
@@ -492,6 +546,72 @@ class AlfredBackgroundDaemon:
                 self.emit_ui(state="STANDBY")
         except Exception:
             self.emit_ui(state="STANDBY")
+
+    def execute_evening_shutdown(self, directive: str):
+        """
+        Executes the Bedtime / Goodnight Computer routine:
+        1. Queries /api/evening-debrief on host to turn off Bravia TV and living room lights.
+        2. Alfred speaks the summary of today and preview of tomorrow.
+        3. Posts a countdown notification with cancel option.
+        4. Waits for TTS audio completion + 3 seconds, then issues systemctl poweroff.
+        """
+        try:
+            self._shutdown_cancelled = False
+            self.emit_ui(state="BEDTIME SEQUENCE", user_text=directive, reply_text="Initiating Batcave nightfall sequence, Master Ramos...")
+            debrief_data = {}
+            try:
+                res = self.session.post(
+                    f"{self.server_url}/api/evening-debrief",
+                    params={"powerdown_smart_home": "true", "skip_tts": "false"},
+                    timeout=8
+                ).json()
+                debrief_data = res
+            except Exception as e:
+                print(f"Remote evening debrief warning: {e}")
+
+            reply = debrief_data.get("reply")
+            audio_url = debrief_data.get("audio_url")
+
+            if not reply:
+                reply = (
+                    "Good evening, Master Ramos. Daily tactical operations have concluded. "
+                    "Your schedule for tomorrow is registered. I have signaled the Batcave ambient shutdown. "
+                    "Sleep well, Master Ramos. Powering down systems now."
+                )
+
+            self.emit_ui(state="SPEAKING", user_text=directive, reply_text=reply)
+            self.notifier.notify(
+                "🦇 Batcomputer Nightfall Shutdown",
+                f"{reply}\n\n⚡ System poweroff will execute momentarily. Press Super+Escape to abort.",
+                timeout_ms=12000
+            )
+
+            if audio_url:
+                self.play_audio_url(audio_url)
+            else:
+                self._speak_short_reply(reply)
+
+            def _poweroff_worker():
+                time.sleep(2.0)
+                while self.is_speaking():
+                    if self._shutdown_cancelled:
+                        print("🛑 [Batcomputer Poweroff]: Shutdown sequence cancelled by user.")
+                        return
+                    time.sleep(0.5)
+                # 5-second countdown grace period
+                for _ in range(10):
+                    if self._shutdown_cancelled:
+                        print("🛑 [Batcomputer Poweroff]: Shutdown sequence cancelled by user.")
+                        return
+                    time.sleep(0.5)
+                if not self._shutdown_cancelled:
+                    print("⚡ [Batcomputer Poweroff]: Executing systemctl poweroff...")
+                    subprocess.run(["systemctl", "poweroff"])
+
+            threading.Thread(target=_poweroff_worker, daemon=True).start()
+        except Exception as e:
+            print(f"Error in execute_evening_shutdown: {e}")
+            self.emit_ui(state="ERROR", reply_text=f"Shutdown sequence error: {e}")
 
     def process_wav_bytes(self, wav_bytes: bytes):
         self.emit_ui(state="TRANSCRIBING (MLX)...")
@@ -597,6 +717,131 @@ class AlfredBackgroundDaemon:
                 except Exception:
                     pass
         threading.Thread(target=_heartbeat_worker, daemon=True).start()
+
+        def _morning_briefing_worker():
+            """
+            Proactive Morning Hybrid Briefing Watchdog:
+            Checks if this is the first login/boot of the day.
+            Waits 5 seconds for desktop and audio initialization,
+            then delivers a crisp hybrid briefing with follow-up handover.
+            """
+            time.sleep(5.0)
+            cache_file = Path.home() / ".cache" / "alfred_morning_briefing.json"
+            today_str = datetime.now().strftime("%Y-%m-%d")
+
+            already_briefed = False
+            if cache_file.exists():
+                try:
+                    data = json.loads(cache_file.read_text(encoding="utf-8"))
+                    if data.get("last_date") == today_str:
+                        already_briefed = True
+                except Exception:
+                    pass
+
+            if already_briefed:
+                return
+
+            # Check if a fullscreen game is currently active
+            try:
+                clients_raw = subprocess.check_output(["hyprctl", "clients", "-j"], timeout=1).decode("utf-8")
+                clients = json.loads(clients_raw) if clients_raw.strip() else []
+                is_gaming = any(
+                    c.get("fullscreen") == 1 or any(g in c.get("class", "").lower() for g in ("steam_app", "gamescope", "lutris", "heroic"))
+                    for c in clients
+                )
+                if is_gaming:
+                    print("🎮 [Briefing Postponed]: Fullscreen gaming session active.")
+                    return
+            except Exception:
+                pass
+
+            print(f"🌅 [Autonomous Morning Briefing]: Engaging first-boot briefing for {today_str}...")
+            try:
+                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                cache_file.write_text(json.dumps({"last_date": today_str, "timestamp": time.time()}), encoding="utf-8")
+
+                self.play_chime(high=True)
+                time.sleep(0.4)
+
+                b_res = self.session.get(f"{self.server_url}/api/briefing?mode=hybrid&skip_tts=false", timeout=12).json()
+                reply = b_res.get("reply", "")
+                audio_url = b_res.get("audio_url")
+
+                self.emit_ui(state="SPEAKING", user_text="[Autonomous Morning Briefing]", reply_text=reply)
+                self.notifier.notify("🌅 'Puter Morning Tactical Briefing", reply, timeout_ms=10000)
+
+                if audio_url:
+                    self.play_audio_url(audio_url)
+                else:
+                    self._speak_short_reply(reply)
+            except Exception as e:
+                print(f"Error in morning briefing: {e}")
+
+        def _calendar_countdown_worker():
+            """
+            Pre-Event Tactical Countdown Watchdog:
+            Runs every 45 seconds, checking today's calendar objectives.
+            If an event is exactly ~15 minutes away, delivers an acoustic alert
+            and spoken notice with location reminder.
+            """
+            notified_events = set()
+            while self.running:
+                time.sleep(45)
+                try:
+                    now = datetime.now()
+                    today_str = now.strftime("%Y-%m-%d")
+
+                    cal_data = query_local_calendar_agenda()
+                    events = cal_data.get("events", [])
+
+                    for e in events:
+                        eid = e.get("id")
+                        if not eid or eid in notified_events:
+                            continue
+                        if e.get("date") != today_str:
+                            continue
+                        t_str = e.get("time", "")
+                        if not t_str or t_str == "All Day":
+                            continue
+
+                        try:
+                            dt = datetime.strptime(f"{today_str} {t_str}", "%Y-%m-%d %I:%M %p")
+                            diff_min = (dt - now).total_seconds() / 60.0
+
+                            # Target 15 minute warning window: 13.5 to 16.5 minutes prior
+                            if 13.5 <= diff_min <= 16.5:
+                                notified_events.add(eid)
+
+                                is_gaming = False
+                                try:
+                                    clients_raw = subprocess.check_output(["hyprctl", "clients", "-j"], timeout=1).decode("utf-8")
+                                    clients = json.loads(clients_raw) if clients_raw.strip() else []
+                                    is_gaming = any(c.get("fullscreen") == 1 for c in clients)
+                                except Exception:
+                                    pass
+
+                                title = e.get("title", "Tactical Objective")
+                                loc = e.get("location", "Designated Location")
+                                alert_msg = f"Master Ramos, you have {title} in 15 minutes at {loc}."
+
+                                self.notifier.notify(
+                                    f"⏰ Upcoming Event: {title} (in 15m)",
+                                    f"📍 Location: {loc}\n⏰ Time: {t_str}",
+                                    timeout_ms=12000
+                                )
+                                self.play_chime(high=True)
+                                time.sleep(0.3)
+
+                                if not is_gaming:
+                                    self.emit_ui(state="SPEAKING", user_text=f"[Event Reminder: {title}]", reply_text=alert_msg)
+                                    self._speak_short_reply(alert_msg)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+        threading.Thread(target=_morning_briefing_worker, daemon=True).start()
+        threading.Thread(target=_calendar_countdown_worker, daemon=True).start()
         print("=================================================================")
         print("🦇 'PUTER // BCv1.2 NATIVE COMPANION & VOICE DAEMON ONLINE")
         print(f"🔗 Server: {self.server_url}")
@@ -1233,19 +1478,67 @@ def save_quick_note(content: str) -> dict:
 
 def query_local_calendar_agenda() -> dict:
     cal_file = Path("/home/jmrd/.gemini/antigravity/scratch/alfred-batcomputer/calendar.json")
+    
+    # Attempt quick background refresh from Batcomputer primary host if reachable
+    try:
+        cfg_file = Path("/home/jmrd/.gemini/antigravity/scratch/alfred-batcomputer/auth_config.json")
+        tok = ""
+        if cfg_file.exists():
+            tok = json.loads(cfg_file.read_text(encoding="utf-8")).get("daemon_token", "")
+        srv = os.environ.get("ALFRED_SERVER_URL", "http://100.77.249.27:7776")
+        url = f"{srv}/api/calendar?token={tok}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Batcomputer-Alfred-Local)"})
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if "events" in data and isinstance(data["events"], list):
+                cal_file.write_text(json.dumps(data["events"], indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
     if not cal_file.exists():
         return {"events": [], "summary": "No calendar events loaded yet, Master Ramos."}
     try:
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
+        
         events = json.loads(cal_file.read_text(encoding="utf-8"))
         if not events:
             return {"events": [], "summary": "Your tactical agenda is currently clear, Master Ramos."}
-        top = events[:3]
-        summaries = [f"{e.get('time', 'TBD')}: {e.get('title', 'Event')}" for e in top]
-        return {
-            "events": events,
-            "next_event": top[0] if top else None,
-            "summary": f"You have {len(events)} upcoming events, Master Ramos. Next: {', '.join(summaries)}."
-        }
+
+        # Filter for upcoming vs today vs past
+        upcoming = []
+        today_events = []
+        for e in events:
+            d = e.get("date", "")
+            if d == today_str:
+                today_events.append(e)
+                upcoming.append(e)
+            elif d > today_str:
+                upcoming.append(e)
+
+        if today_events:
+            summaries = [f"{e.get('time', 'TBD')}: {e.get('title', 'Event')}" for e in today_events[:3]]
+            return {
+                "events": events,
+                "upcoming": upcoming,
+                "next_event": today_events[0],
+                "summary": f"You have {len(today_events)} objective{'s' if len(today_events) > 1 else ''} scheduled for today, Master Ramos. Next: {', '.join(summaries)}."
+            }
+        elif upcoming:
+            summaries = [f"{e.get('date')} at {e.get('time', 'TBD')}: {e.get('title', 'Event')}" for e in upcoming[:3]]
+            return {
+                "events": events,
+                "upcoming": upcoming,
+                "next_event": upcoming[0],
+                "summary": f"You have {len(upcoming)} upcoming event{'s' if len(upcoming) > 1 else ''} on your calendar, Master Ramos. Next: {', '.join(summaries)}."
+            }
+        else:
+            return {
+                "events": events,
+                "upcoming": [],
+                "next_event": None,
+                "summary": "Your tactical agenda is currently clear with no upcoming events scheduled, Master Ramos. Archived past semester events are retained in memory."
+            }
     except Exception as e:
         return {"events": [], "summary": f"Could not read calendar: {e}"}
 
@@ -1626,6 +1919,13 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                     self._send_json({"ok": False, "error": "Screen capture failed on client"}, status=500)
                 return
 
+            if parsed.path == "/local/command":
+                cmd = data.get("command", "").strip()
+                if cmd:
+                    threading.Thread(target=daemon.send_text_directive, args=(cmd,), daemon=True).start()
+                self._send_json({"ok": True, "command": cmd})
+                return
+
             self._send_json({"error": "Unknown endpoint"}, status=404)
 
     def _serve():
@@ -1681,7 +1981,7 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
         QPushButton, QLineEdit, QProgressBar, QSystemTrayIcon, QMenu
     )
-    from PyQt6.QtCore import Qt, pyqtSignal, QObject, QUrl, QPointF
+    from PyQt6.QtCore import Qt, pyqtSignal, QObject, QUrl, QPointF, QTimer
     from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QPolygonF, QAction, QKeySequence, QShortcut
 
     configure_hyprland_overlay_rules()
@@ -1762,11 +2062,12 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                         # Strict rule: Desktop HUD is ONLY active if the workspace is completely empty (0 application windows).
                         # If ANY app (e.g. Zen Browser, Discord, Code, Terminal) exists on this workspace, HUD remains SLEEPING.
                         is_desktop = (real_app_count == 0)
+                        current_state = (is_desktop, ws_id)
 
-                        if last_states.get(m_name) != is_desktop:
-                            last_states[m_name] = is_desktop
+                        if last_states.get(m_name) != current_state:
+                            last_states[m_name] = current_state
                             print(f"🖥️ [Desktop Auto-Wake]: Monitor {m_name} (ws {ws_id}, apps {real_app_count}) -> {'WAKE (Empty Desktop)' if is_desktop else 'SLEEP (App Active)'}")
-                            daemon.emit_ui(auto_desktop_wake={"monitor": m_name, "state": is_desktop})
+                            daemon.emit_ui(auto_desktop_wake={"monitor": m_name, "state": is_desktop, "workspace": str(ws_id)})
                 except Exception:
                     pass
 
@@ -1803,6 +2104,7 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
             super().__init__()
             self.screen_obj = screen
             s_name = screen.name()
+            self.screen_name = s_name
             self.setWindowTitle(f"Puter // BCv1.2 Desktop Shell - {s_name}")
             self.setWindowIcon(bat_icon)
             self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
@@ -1838,11 +2140,20 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                 fallback_lbl.setStyleSheet("color: #00e5ff; font-size: 16px; padding: 40px;")
                 lyt.addWidget(fallback_lbl)
 
+            self._is_visible_on_screen = False
+            self.show()
+
+            # Start dormant in a hidden special workspace so it never covers apps at startup
+            QTimer.singleShot(250, self.hide_desktop_shell)
+
             # Keyboard shortcuts inside Desktop Shell: F11 or Escape exits full-screen desktop override across all screens
             esc_short = QShortcut(QKeySequence("Escape"), self)
             esc_short.activated.connect(self._exit_all_desktops)
             f11_short = QShortcut(QKeySequence("F11"), self)
             f11_short.activated.connect(self._exit_all_desktops)
+
+        def is_shell_visible(self) -> bool:
+            return getattr(self, "_is_visible_on_screen", False)
 
         def _exit_all_desktops(self):
             if hasattr(self, "_companion_ref") and self._companion_ref:
@@ -1851,20 +2162,44 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                 for s in desktop_shells:
                     s.hide_desktop_shell()
 
-        def show_desktop_shell(self):
-            geom = self.screen_obj.geometry()
-            self.setScreen(self.screen_obj)
-            self.setGeometry(geom)
-            self.show()
-            s_name = self.screen_obj.name()
+        def get_hypr_address(self) -> Optional[str]:
+            if getattr(self, "_hypr_address", None):
+                return self._hypr_address
             try:
-                lua_cmd = f'hl.dispatch(hl.dsp.window.alter_zorder({{ mode = "bottom", match = {{ title = "^Puter // BCv1\\\\.2 Desktop Shell - {s_name}$" }} }}))'
-                subprocess.run(["hyprctl", "eval", lua_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+                clients_raw = subprocess.check_output(["hyprctl", "clients", "-j"], timeout=1).decode("utf-8")
+                clients = json.loads(clients_raw)
+                my_pid = os.getpid()
+                target_title = f"Puter // BCv1.2 Desktop Shell - {self.screen_name}"
+                for c in clients:
+                    if c.get("pid") == my_pid and c.get("title") == target_title:
+                        self._hypr_address = c.get("address")
+                        return self._hypr_address
             except Exception:
                 pass
+            return None
+
+        def show_desktop_shell(self, target_ws: Optional[str] = None):
+            addr = self.get_hypr_address()
+            ws = str(target_ws) if target_ws else "1"
+            win_match = f"address:{addr}" if addr else f"title:Puter // BCv1.2 Desktop Shell - {self.screen_name}"
+            lua = f'return hl.dispatch(hl.dsp.window.move({{ window = "{win_match}", workspace = "{ws}", follow = false }}))'
+            subprocess.run(["hyprctl", "repl", lua], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+            self._is_visible_on_screen = True
 
         def hide_desktop_shell(self):
-            self.hide()
+            addr = self.get_hypr_address()
+            special_ws = f"special:batdesk_{self.screen_name}"
+            win_match = f"address:{addr}" if addr else f"title:Puter // BCv1.2 Desktop Shell - {self.screen_name}"
+            lua = f'return hl.dispatch(hl.dsp.window.move({{ window = "{win_match}", workspace = "{special_ws}", follow = false }}))'
+            subprocess.run(["hyprctl", "repl", lua], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+            self._is_visible_on_screen = False
+
+        def closeEvent(self, event):
+            event.ignore()
+            # Intercept Super+W so it never destroys the desktop HUD.
+            # Instead, smoothly return user to their previous active workspace (e.g. Antigravity or Zen Browser)
+            lua = 'return hl.dispatch(hl.dsp.focus({ workspace = "previous" }))'
+            subprocess.run(["hyprctl", "repl", lua], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
 
     # Instantiate DesktopShellWindow on every detected monitor
     for scr in app.screens():
@@ -2020,6 +2355,14 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
             btn_row.addWidget(self.hide_btn)
             layout.addLayout(btn_row)
 
+            # Keyboard shortcut: Escape dismisses the mini companion
+            esc_short = QShortcut(QKeySequence("Escape"), self)
+            esc_short.activated.connect(self.hide)
+
+        def closeEvent(self, event):
+            event.ignore()
+            self.hide()
+
         def mousePressEvent(self, event):
             if event.button() == Qt.MouseButton.LeftButton:
                 self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -2048,34 +2391,62 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
 
         def toggle_desktop_override(self, force_state: Optional[str] = None):
             global _DESKTOP_MODE_ACTIVE
-            any_visible = any(s.isVisible() for s in desktop_shells)
-            if force_state == "on" or (force_state is None and not any_visible):
-                for s in desktop_shells:
-                    s.show_desktop_shell()
-                self.raise_()
-                self.desktop_btn.setText("🖥️ EXIT DESK")
-                self.desktop_btn.setStyleSheet("background-color: rgba(0,255,136,0.28); color: #00ff88; border-color: #00ff88;")
-                _DESKTOP_MODE_ACTIVE = True
-            else:
-                for s in desktop_shells:
-                    s.hide_desktop_shell()
-                self.desktop_btn.setText("🖥️ DESKTOP")
-                self.desktop_btn.setStyleSheet("border-color: #00ff88; color: #00ff88;")
-                _DESKTOP_MODE_ACTIVE = False
+            try:
+                mons_raw = subprocess.check_output(["hyprctl", "monitors", "-j"], timeout=1).decode("utf-8")
+                mons = json.loads(mons_raw) if mons_raw.strip() else []
+                clients_raw = subprocess.check_output(["hyprctl", "clients", "-j"], timeout=1).decode("utf-8")
+                clients = json.loads(clients_raw) if clients_raw.strip() else []
+
+                focused_mon = next((m for m in mons if m.get("focused")), mons[0] if mons else None)
+                if not focused_mon:
+                    return
+
+                curr_ws = focused_mon.get("activeWorkspace", {}).get("id")
+
+                app_windows = [
+                    c for c in clients
+                    if c.get("mapped")
+                    and "Puter // BCv1.2" not in c.get("title", "")
+                    and "batdesk" not in str(c.get("workspace", {}).get("name", ""))
+                    and c.get("size", [0, 0])[0] > 50
+                ]
+                curr_ws_apps = [c for c in app_windows if c.get("workspace", {}).get("id") == curr_ws]
+
+                if len(curr_ws_apps) > 0 or force_state == "on":
+                    # Current workspace has active applications (e.g. Antigravity, Zen Browser).
+                    # Move user smoothly to an empty workspace so Batcomputer Full HUD launches there without covering apps!
+                    used_ws = {c.get("workspace", {}).get("id") for c in app_windows}
+                    target_ws = next((cand for cand in [3, 4, 6, 7, 8, 9, 10] if cand not in used_ws), 9)
+                    lua = f'return hl.dispatch(hl.dsp.focus({{ workspace = "{target_ws}" }}))'
+                    subprocess.run(["hyprctl", "repl", lua], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+                    self.desktop_btn.setText("🖥️ EXIT DESK")
+                    self.desktop_btn.setStyleSheet("background-color: rgba(0,255,136,0.28); color: #00ff88; border-color: #00ff88;")
+                    _DESKTOP_MODE_ACTIVE = True
+                else:
+                    # Current workspace is already an empty desktop workspace.
+                    # Switch user back to their previous active workspace (where Antigravity was)!
+                    lua = 'return hl.dispatch(hl.dsp.focus({ workspace = "previous" }))'
+                    subprocess.run(["hyprctl", "repl", lua], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+                    self.desktop_btn.setText("🖥️ DESKTOP")
+                    self.desktop_btn.setStyleSheet("border-color: #00ff88; color: #00ff88;")
+                    _DESKTOP_MODE_ACTIVE = False
+            except Exception as e:
+                print(f"Error in toggle_desktop_override: {e}")
 
         def handle_event(self, ev: dict):
             if "auto_desktop_wake" in ev:
                 wake_info = ev["auto_desktop_wake"]
                 target_mon = wake_info.get("monitor")
                 is_wake = wake_info.get("state")
+                target_ws = wake_info.get("workspace")
                 for s in desktop_shells:
-                    s_name = s.screen_obj.name()
+                    s_name = s.screen_name
                     if target_mon == "all" or s_name == target_mon:
-                        if is_wake and not s.isVisible():
-                            s.show_desktop_shell()
-                        elif not is_wake and s.isVisible():
+                        if is_wake:
+                            s.show_desktop_shell(target_ws=target_ws)
+                        else:
                             s.hide_desktop_shell()
-                any_vis = any(s.isVisible() for s in desktop_shells)
+                any_vis = any(s.is_shell_visible() for s in desktop_shells)
                 if any_vis:
                     self.desktop_btn.setText("🖥️ EXIT DESK")
                     self.desktop_btn.setStyleSheet("background-color: rgba(0,255,136,0.28); color: #00ff88; border-color: #00ff88;")
@@ -2088,6 +2459,8 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                     self.show()
                     self.raise_()
                     self.activateWindow()
+                    self.cmd_input.setFocus()
+                    self.cmd_input.selectAll()
                 elif act == "hide":
                     self.hide()
                 elif act == "toggle":
@@ -2097,6 +2470,8 @@ def run_pyqt_companion_app(daemon: AlfredBackgroundDaemon, hud_url: str, start_i
                         self.show()
                         self.raise_()
                         self.activateWindow()
+                        self.cmd_input.setFocus()
+                        self.cmd_input.selectAll()
             if "desktop_toggle" in ev:
                 act = ev["desktop_toggle"]
                 if act == "on":

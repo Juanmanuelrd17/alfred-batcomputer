@@ -26,6 +26,12 @@ import email
 from email.header import decode_header
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
+from datetime import datetime, date, timedelta
+import zoneinfo
+try:
+    from dateutil.rrule import rrulestr
+except ImportError:
+    rrulestr = None
 import urllib.request
 import urllib.parse
 import requests
@@ -1013,41 +1019,140 @@ def call_hass_tv(action: str) -> Dict[str, Any]:
 # ==========================================
 # PERSONAL CALENDAR & DUAL ICAL SYNC ENGINE (ICLOUD & GOOGLE CALENDAR)
 # ==========================================
+def unfold_ics(ics_text: str) -> str:
+    """Unfold RFC 5545 multi-line strings where lines start with space or tab."""
+    text = ics_text.replace("\r\n", "\n").replace("\r", "\n")
+    return re.sub(r'\n[ \t]', '', text)
+
+
 def parse_ics_text(ics_text: str, source_label: str = "Personal") -> List[Dict[str, Any]]:
     events = []
-    vevents = re.findall(r'BEGIN:VEVENT(.*?)END:VEVENT', ics_text, re.DOTALL)
+    unfolded = unfold_ics(ics_text)
+    vevents = re.findall(r'BEGIN:VEVENT(.*?)END:VEVENT', unfolded, re.DOTALL)
+    
+    try:
+        local_tz = zoneinfo.ZoneInfo("America/New_York")
+    except Exception:
+        local_tz = None
+    now = datetime.now(local_tz) if local_tz else datetime.now()
+    today_str = now.strftime('%Y-%m-%d')
+    
+    # Expansion window for recurring events: 14 days ago to 120 days ahead
+    window_start = now - timedelta(days=14)
+    window_end = now + timedelta(days=120)
+
     for v in vevents:
         summary_m = re.search(r'SUMMARY:(.*)', v)
         summary = summary_m.group(1).strip() if summary_m else 'Calendar Event'
         summary = summary.replace(r'\,', ',').replace(r'\;', ';').replace(r'\n', ' ').strip()
         
-        start_m = re.search(r'DTSTART(?:;[^:]+)?:(\d+T\d+Z?|\d+)', v)
-        start_raw = start_m.group(1).strip() if start_m else ''
-        
         loc_m = re.search(r'LOCATION:(.*)', v)
         loc = loc_m.group(1).strip() if loc_m else ''
         loc = loc.replace(r'\,', ',').replace(r'\;', ';').replace(r'\n', ' ').strip()
         
-        time_str = 'All Day'
-        date_str = 'Upcoming'
-        sort_key = '9999-99-99 99:99'
-        if 'T' in start_raw:
+        status_m = re.search(r'STATUS:(.*)', v)
+        status = status_m.group(1).strip().upper() if status_m else 'CONFIRMED'
+        if status == 'CANCELLED':
+            continue
+
+        start_m = re.search(r'DTSTART(?:;[^:]*)?:(\d+T\d+Z?|\d+)', v)
+        if not start_m:
+            continue
+        start_raw = start_m.group(1).strip()
+
+        rrule_m = re.search(r'RRULE:(.*)', v)
+        rrule_str = rrule_m.group(1).strip() if rrule_m else None
+
+        exdates = set()
+        for ex_m in re.finditer(r'EXDATE(?:;[^:]*)?:([0-9TZ,]+)', v):
+            for part in ex_m.group(1).split(','):
+                part = part.strip()
+                if len(part) >= 8:
+                    exdates.add(part[:8])
+
+        is_all_day = 'T' not in start_raw
+        base_dt = None
+
+        if is_all_day:
             try:
-                from datetime import datetime
-                dt = datetime.strptime(start_raw[:15], '%Y%m%dT%H%M%S')
-                time_str = dt.strftime('%I:%M %p')
-                date_str = dt.strftime('%Y-%m-%d')
-                sort_key = dt.strftime('%Y-%m-%d %H:%M')
+                base_dt = datetime.strptime(start_raw[:8], '%Y%m%d').date()
             except Exception:
-                time_str = start_raw
-        elif len(start_raw) == 8:
+                continue
+        else:
             try:
-                from datetime import datetime
-                dt = datetime.strptime(start_raw, '%Y%m%d')
-                date_str = dt.strftime('%Y-%m-%d')
-                sort_key = dt.strftime('%Y-%m-%d 00:00')
+                if start_raw.endswith('Z'):
+                    base_dt = datetime.strptime(start_raw[:15], '%Y%m%dT%H%M%S')
+                    base_dt = base_dt.replace(tzinfo=zoneinfo.ZoneInfo('UTC'))
+                    if local_tz:
+                        base_dt = base_dt.astimezone(local_tz)
+                else:
+                    base_dt = datetime.strptime(start_raw[:15], '%Y%m%dT%H%M%S')
+                    if local_tz:
+                        base_dt = base_dt.replace(tzinfo=local_tz)
             except Exception:
-                date_str = start_raw
+                continue
+
+        # Handle recurring events via dateutil.rrule if available
+        if rrule_str and rrulestr:
+            try:
+                if is_all_day:
+                    dtstart_dt = datetime.combine(base_dt, datetime.min.time(), tzinfo=local_tz) if local_tz else datetime.combine(base_dt, datetime.min.time())
+                    rule = rrulestr(rrule_str, dtstart=dtstart_dt)
+                    occurrences = rule.between(window_start, window_end, inc=True)
+                    for occ in occurrences:
+                        occ_date_str = occ.strftime('%Y-%m-%d')
+                        if occ.strftime('%Y%m%d') in exdates:
+                            continue
+                        events.append({
+                            'id': f'cal_{uuid.uuid4().hex[:6]}',
+                            'title': summary,
+                            'time': 'All Day',
+                            'date': occ_date_str,
+                            'location': loc or 'Virtual / No Location',
+                            'priority': source_label,
+                            'source': source_label,
+                            'status': status,
+                            'is_past': occ_date_str < today_str,
+                            'is_today': occ_date_str == today_str,
+                            '_sort_key': f'{occ_date_str} 00:00'
+                        })
+                else:
+                    rule = rrulestr(rrule_str, dtstart=base_dt)
+                    occurrences = rule.between(window_start, window_end, inc=True)
+                    for occ in occurrences:
+                        occ_date_str = occ.strftime('%Y-%m-%d')
+                        if occ.strftime('%Y%m%d') in exdates:
+                            continue
+                        events.append({
+                            'id': f'cal_{uuid.uuid4().hex[:6]}',
+                            'title': summary,
+                            'time': occ.strftime('%I:%M %p'),
+                            'date': occ_date_str,
+                            'location': loc or 'Virtual / No Location',
+                            'priority': source_label,
+                            'source': source_label,
+                            'status': status,
+                            'is_past': occ < now,
+                            'is_today': occ_date_str == today_str,
+                            '_sort_key': occ.strftime('%Y-%m-%d %H:%M')
+                        })
+                continue
+            except Exception:
+                pass
+
+        # Single event
+        if is_all_day:
+            date_str = base_dt.strftime('%Y-%m-%d')
+            time_str = 'All Day'
+            sort_key = f'{date_str} 00:00'
+            is_past = date_str < today_str
+            is_today = date_str == today_str
+        else:
+            date_str = base_dt.strftime('%Y-%m-%d')
+            time_str = base_dt.strftime('%I:%M %p')
+            sort_key = base_dt.strftime('%Y-%m-%d %H:%M')
+            is_past = base_dt < now
+            is_today = date_str == today_str
 
         events.append({
             'id': f'cal_{uuid.uuid4().hex[:6]}',
@@ -1057,7 +1162,9 @@ def parse_ics_text(ics_text: str, source_label: str = "Personal") -> List[Dict[s
             'location': loc or 'Virtual / No Location',
             'priority': source_label,
             'source': source_label,
-            'status': 'CONFIRMED',
+            'status': status,
+            'is_past': is_past,
+            'is_today': is_today,
             '_sort_key': sort_key
         })
     return events
@@ -1073,7 +1180,12 @@ def load_calendar_config() -> dict:
         "icloud_url": "",
         "google_url": "",
         "last_synced": None,
-        "sources": []
+        "sources": [],
+        "count": 0,
+        "upcoming_count": 0,
+        "today_count": 0,
+        "past_count": 0,
+        "next_event": None
     }
 
 
@@ -1175,11 +1287,21 @@ def sync_calendar(icloud_url: Optional[str] = None, google_url: Optional[str] = 
     for e in deduped:
         e.pop('_sort_key', None)
 
+    # Compute upcoming / today / past and next event
+    upcoming_events = [e for e in deduped if not e.get("is_past")]
+    today_events = [e for e in deduped if e.get("is_today")]
+    past_events = [e for e in deduped if e.get("is_past")]
+    next_event = upcoming_events[0] if upcoming_events else None
+
     save_calendar_events(deduped)
     cfg["last_synced"] = time.strftime("%Y-%m-%d %I:%M %p")
     cfg["sources"] = active_sources
     cfg["errors"] = errors
     cfg["count"] = len(deduped)
+    cfg["upcoming_count"] = len(upcoming_events)
+    cfg["today_count"] = len(today_events)
+    cfg["past_count"] = len(past_events)
+    cfg["next_event"] = next_event
     save_calendar_config(cfg)
     return deduped
 
@@ -2026,9 +2148,63 @@ def brain_search(data: dict):
 @app.get("/api/calendar")
 def get_calendar():
     events = load_calendar_events()
-    if not events:
+    cfg = load_calendar_config()
+    if not events and (cfg.get("icloud_url") or cfg.get("google_url")):
         events = sync_calendar()
-    return {"events": events, "config": load_calendar_config()}
+        cfg = load_calendar_config()
+
+    try:
+        local_tz = zoneinfo.ZoneInfo("America/New_York")
+    except Exception:
+        local_tz = None
+    now = datetime.now(local_tz) if local_tz else datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+
+    upcoming = []
+    today_events = []
+    past_events = []
+
+    for e in events:
+        d = e.get("date", "")
+        e["is_today"] = (d == today_str)
+        if d < today_str:
+            e["is_past"] = True
+        elif d > today_str:
+            e["is_past"] = False
+        else:
+            t_str = e.get("time", "")
+            if t_str and t_str != "All Day":
+                try:
+                    dt = datetime.strptime(f"{d} {t_str}", "%Y-%m-%d %I:%M %p")
+                    if local_tz:
+                        dt = dt.replace(tzinfo=local_tz)
+                    e["is_past"] = (dt < now)
+                except Exception:
+                    e["is_past"] = False
+            else:
+                e["is_past"] = False
+
+        if e.get("is_past"):
+            past_events.append(e)
+        else:
+            upcoming.append(e)
+        if e.get("is_today"):
+            today_events.append(e)
+
+    next_event = upcoming[0] if upcoming else None
+    cfg["upcoming_count"] = len(upcoming)
+    cfg["today_count"] = len(today_events)
+    cfg["past_count"] = len(past_events)
+    cfg["next_event"] = next_event
+
+    return {
+        "events": events,
+        "config": cfg,
+        "next_event": next_event,
+        "today_count": len(today_events),
+        "upcoming_count": len(upcoming),
+        "past_count": len(past_events)
+    }
 
 
 @app.post("/api/calendar/sync")
@@ -2277,8 +2453,8 @@ def api_vision_endpoint(data: dict):
 
 
 @app.api_route("/api/briefing", methods=["GET", "POST"])
-def api_proactive_briefing(speak_on_host: bool = False, skip_tts: bool = True):
-    """Proactive JARVIS Morning / Arrival Briefing (callable from HUD, voice, or Home Assistant motion/door webhook)."""
+def api_proactive_briefing(speak_on_host: bool = False, skip_tts: bool = True, mode: str = "hybrid"):
+    """Proactive JARVIS Morning / Arrival Briefing (hybrid or detailed)."""
     t0 = time.perf_counter()
     hour = int(time.strftime("%H"))
     greeting = "Good morning, Master Ramos" if hour < 12 else ("Good afternoon, Master Juan" if hour < 18 else "Good evening, Master Remmy")
@@ -2290,16 +2466,43 @@ def api_proactive_briefing(speak_on_host: bool = False, skip_tts: bool = True):
     events = load_calendar_events()
     mail = get_mail_summary()
 
-    b_summary = ", ".join([f"{n['name']} at {n['cpu_pct']}% CPU" for n in beszel]) if beszel else "all servers nominal"
-    cal_part = f"You have {len(events)} scheduled items today, starting with {events[0]['title']} at {events[0]['time']}." if events else "Your schedule is clear today."
-    print_part = f"Your Anycubic 3D printer is {printer.get('state', 'idle')} ({printer.get('progress_pct', 0)}%)." if printer.get("online") else ""
-    mail_part = f"You have {mail.get('unread_count', 0)} unread emails." if mail.get("connected") else ""
+    # Dynamic calendar breakdown
+    try:
+        local_tz = zoneinfo.ZoneInfo("America/New_York")
+    except Exception:
+        local_tz = None
+    now = datetime.now(local_tz) if local_tz else datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
 
-    reply = (
-        f"{greeting}. It is {time.strftime('%I:%M %p')}, {weather.get('temp_f', 72)}°F and {weather.get('condition', 'clear').lower()} outside in Georgia, "
-        f"with indoor climate at {thermo.get('temp_f', 72)}°F. "
-        f"Beszel fleet is online ({b_summary}). {print_part} {cal_part} {mail_part}"
-    ).strip()
+    today_events = [e for e in events if e.get("date") == today_str and not e.get("is_past")]
+    upcoming_events = [e for e in events if not e.get("is_past")]
+
+    if today_events:
+        cal_part = f"You have {len(today_events)} tactical objective{'s' if len(today_events) > 1 else ''} today, starting with {today_events[0]['title']} at {today_events[0]['time']}."
+    elif upcoming_events:
+        next_e = upcoming_events[0]
+        cal_part = f"Your schedule for today is clear. Next on your tactical agenda is {next_e['title']} on {next_e.get('date')} at {next_e.get('time')}."
+    else:
+        cal_part = "Your tactical agenda is currently clear with no upcoming deadlines."
+
+    b_summary = ", ".join([f"{n['name']} at {n['cpu_pct']}% CPU" for n in beszel]) if beszel else "all server nodes nominal"
+
+    if mode == "detailed":
+        print_part = f"Your Anycubic 3D printer is {printer.get('state', 'idle')} ({printer.get('progress_pct', 0)}%)." if printer.get("online") else ""
+        mail_part = f"You have {mail.get('unread_count', 0)} unread emails." if mail.get("connected") else ""
+        reply = (
+            f"{greeting}. Detailed tactical debrief: It is {time.strftime('%I:%M %p')}, {weather.get('temp_f', 72)}°F and {weather.get('condition', 'clear').lower()} outside in Georgia, "
+            f"with ambient indoor climate at {thermo.get('temp_f', 72)}°F. "
+            f"Fleet telemetry reports {b_summary}. {print_part} {cal_part} {mail_part} "
+            f"All Batcomputer sub-routines are operating at peak efficiency, Master Ramos."
+        ).strip()
+    else:
+        # Hybrid concise mode (~25-30s) + conversational handover
+        reply = (
+            f"{greeting}. It is {time.strftime('%I:%M %p')}, {weather.get('temp_f', 72)}°F and {weather.get('condition', 'clear').lower()} outside in Georgia. "
+            f"{cal_part} Fleet telemetry is nominal ({b_summary}). "
+            f"I remain at your disposal, Master Ramos; would you like me to expand on fleet diagnostics or prepare the morning route?"
+        ).strip()
 
     audio_url = None if skip_tts else synthesize_voice(reply, CURRENT_VOICE)
     if speak_on_host:
@@ -2312,6 +2515,80 @@ def api_proactive_briefing(speak_on_host: bool = False, skip_tts: bool = True):
         "reply": reply,
         "audio_url": audio_url,
         "weather": weather,
+        "mode": mode,
+        "today_count": len(today_events),
+        "latency_ms": round((time.perf_counter() - t0) * 1000)
+    }
+
+
+@app.api_route("/api/evening-debrief", methods=["GET", "POST"])
+def api_evening_debrief(powerdown_smart_home: bool = True, skip_tts: bool = True):
+    """
+    Evening Wrap-Up & Tomorrow Preview:
+    1. Summarizes today's operations (notes captured, system uptime)
+    2. Previews tomorrow's first objective and weather
+    3. Powers down living room TV and ambient lights via Home Assistant
+    4. Delivers elegant butler closing
+    """
+    t0 = time.perf_counter()
+    try:
+        local_tz = zoneinfo.ZoneInfo("America/New_York")
+    except Exception:
+        local_tz = None
+    now = datetime.now(local_tz) if local_tz else datetime.now()
+    tomorrow = now + timedelta(days=1)
+    tomorrow_str = tomorrow.strftime("%Y-%m-%d")
+
+    events = load_calendar_events()
+    tomorrow_events = [e for e in events if e.get("date") == tomorrow_str]
+
+    if tomorrow_events:
+        t_first = tomorrow_events[0]
+        tomorrow_part = f"Tomorrow's agenda begins with {t_first['title']} at {t_first['time']}."
+    else:
+        tomorrow_part = "Your tactical schedule for tomorrow is currently clear."
+
+    # Today's notes
+    notes_today = 0
+    if BRAIN_DIR.exists():
+        today_date_str = now.strftime("%Y-%m-%d")
+        for f in BRAIN_DIR.glob("*.md"):
+            try:
+                mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=local_tz)
+                if mtime.strftime("%Y-%m-%d") == today_date_str:
+                    notes_today += 1
+            except Exception:
+                pass
+    notes_part = f" You captured {notes_today} tactical note{'s' if notes_today != 1 else ''} in your Second Brain vault today." if notes_today > 0 else ""
+
+    # Smart Home Powerdown
+    smart_home_log = []
+    if powerdown_smart_home:
+        try:
+            call_hass_tv("turn_off")
+            call_hass_device_control("light", "turn_off", "light.luz_sala")
+            call_hass_device_control("light", "turn_off", "light.home_theater")
+            smart_home_log.append("Living room Bravia TV & lighting powered down")
+        except Exception as e:
+            smart_home_log.append(f"HA error: {e}")
+
+    weather = get_live_weather()
+    weather_part = f"Tomorrow is forecasted to be {weather.get('condition', 'fair').lower()}."
+
+    reply = (
+        f"Good evening, Master Ramos. Daily tactical operations have concluded.{notes_part} "
+        f"{tomorrow_part} {weather_part} "
+        f"I have powered down the living room Bravia display and ambient lighting. "
+        f"Sleep well, Master Ramos. Powering down systems now."
+    ).strip()
+
+    audio_url = None if skip_tts else synthesize_voice(reply, CURRENT_VOICE)
+
+    return {
+        "reply": reply,
+        "audio_url": audio_url,
+        "tomorrow_events": tomorrow_events,
+        "smart_home_log": smart_home_log,
         "latency_ms": round((time.perf_counter() - t0) * 1000)
     }
 
