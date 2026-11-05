@@ -2287,10 +2287,10 @@
       </div>
 
       <!-- =====================================================
-           8. JARVIS COMPUTER VISION + BIOMETRIC PROFILE TAB
+           8. WAYNE TECH COMPUTER VISION + BIOMETRIC PROFILE TAB
            ===================================================== -->
       <div id="drawer-bio" class="drawer-content">
-        <div style="font-size:10px; color:var(--cyan-bright); margin-bottom:6px;">// JARVIS MULTIMODAL COMPUTER VISION (WEBCAM & SCREEN)</div>
+        <div style="font-size:10px; color:var(--cyan-bright); margin-bottom:6px;">// WAYNE TECH MULTIMODAL COMPUTER VISION (WEBCAM & SCREEN)</div>
         <div style="background:rgba(0,18,36,0.88); border:1px solid var(--panel-border); padding:10px; margin-bottom:10px;">
           <video id="visionVideo" autoplay playsinline muted style="width:100%; max-height:150px; background:#000; border:1px solid var(--cyan); display:none; margin-bottom:6px; object-fit:cover;"></video>
           <canvas id="visionCanvas" style="display:none;"></canvas>
@@ -2367,7 +2367,7 @@
       </div>
 
       <div style="display:flex; flex-direction:column; gap:5px;">
-        <div style="font-size:9.5px; color:#fff; letter-spacing:1px; font-family:var(--font-display);">JARVIS TACTICAL DIRECTIVES</div>
+        <div style="font-size:9.5px; color:#fff; letter-spacing:1px; font-family:var(--font-display);">BATCOMPUTER TACTICAL DIRECTIVES</div>
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
           <button class="hud-btn" style="height:26px; font-size:8.5px; padding:0 6px;" onclick="triggerBriefing()">🌅 BRIEFING</button>
           <button class="hud-btn" style="height:26px; font-size:8.5px; padding:0 6px;" onclick="triggerQuick('Activate movie mode')">🎬 MOVIE MODE</button>
@@ -4699,7 +4699,7 @@
       bargeInStopAudio();
       playBeep(1100, 'sine', 0.06);
       const outputEl = document.getElementById('alfredOutput');
-      outputEl.innerText = '🌅 Compiling proactive JARVIS briefing (weather, Beszel fleet, climate, schedule)...';
+      outputEl.innerText = '🌅 Compiling proactive tactical briefing (weather, Beszel fleet, climate, schedule)...';
       document.getElementById('audioState').innerText = 'BRIEFING';
       try {
         const res = await fetch('/api/briefing?skip_tts=true');

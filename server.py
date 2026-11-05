@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Batcomputer HUD Backend Server - Full Jarvis Feature Replication
+Batcomputer HUD Backend Server - Wayne Tech Tactical Core & Alfred Companion
 - Local LLM Brain (Ollama) with Dynamic Model Switching
 - Local Voice Engine (VoiceStudio & Daniel British Butler) with Dynamic Voice Switching
 - Local Speech-to-Text (Faster-Whisper via VoiceStudio)
@@ -173,7 +173,7 @@ for env_candidate in [BASE_DIR / ".env", Path.home() / ".hermes" / ".env", Path(
                 OMNIROUTE_KEY = line.split("=", 1)[1].strip()
         break
 
-app = FastAPI(title="Batcomputer HUD - Jarvis Replication Core")
+app = FastAPI(title="Batcomputer HUD - Wayne Tech Tactical Core")
 
 app.add_middleware(
     CORSMiddleware,
@@ -2436,7 +2436,7 @@ def list_clients():
 @app.post("/api/vision")
 def api_vision_endpoint(data: dict):
     """
-    JARVIS Multimodal Vision endpoint:
+    Wayne Tech Multimodal Vision endpoint:
     Distinguishes client screen capture (Gaming PC / Laptop) vs server screen capture (Mac Mini M1),
     as well as webcam and uploaded images.
     """
@@ -2454,7 +2454,7 @@ def api_vision_endpoint(data: dict):
 
 @app.api_route("/api/briefing", methods=["GET", "POST"])
 def api_proactive_briefing(speak_on_host: bool = False, skip_tts: bool = True, mode: str = "hybrid"):
-    """Proactive JARVIS Morning / Arrival Briefing (hybrid or detailed)."""
+    """Proactive Wayne Tech Morning / Arrival Briefing (hybrid or detailed)."""
     t0 = time.perf_counter()
     hour = int(time.strftime("%H"))
     greeting = "Good morning, Master Ramos" if hour < 12 else ("Good afternoon, Master Juan" if hour < 18 else "Good evening, Master Remmy")
@@ -2611,7 +2611,7 @@ def get_pwa_manifest():
         "display": "standalone",
         "background_color": "#01060d",
         "theme_color": "#00e5ff",
-        "description": "Jarvis-grade Batcomputer Voice & Smart Home Command Center"
+        "description": "Wayne Tech Batcomputer Voice & Smart Home Command Center"
     }
 
 
@@ -2964,7 +2964,7 @@ def chat_endpoint(data: dict):
     second_brain_ctx = get_relevant_second_brain_context(clean_directive)
     second_brain_str = f"\nRELEVANT SECOND BRAIN KNOWLEDGE:\n{second_brain_ctx}\n" if second_brain_ctx else ""
 
-    system_prompt = f"""You are 'Puter (Computer), the fast, witty Batcomputer AI assistant to Juan Manuel Ramos (inspired by The Lego Batman Movie 'Puter + JARVIS).
+    system_prompt = f"""You are 'Puter (Computer), the fast, witty Batcomputer AI companion to Master Juan Manuel Ramos (powered by Wayne Tech & The Batcomputer).
 Wake words: "Computer", "Puter", "Hey Computer", or "Hey Puter".
 Address him naturally as 'Master Ramos', 'Master Juan', or 'Master Remmy' (NEVER call him Master Wayne or Bruce).
 Reply in 1-2 crisp sentences (<25 words).

@@ -1,0 +1,8 @@
+{
+  "auth_enabled": true,
+  "username": "admin",
+  "passcode": "ChangeMe123!",
+  "salt": "wayne_tech_salt_2026",
+  "daemon_token": "wayne-tech-daemon-placeholder-token",
+  "session_lifetime_sec": 2592000
+}

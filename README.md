@@ -1,6 +1,6 @@
 # Alfred Batcomputer: Cybernetic Voice Butler & Tactical HUD
 
-An end-to-end, high-intelligence tactical AI butler system and sci-fi Batcomputer HUD designed for Wayne Enterprises tactical operations and smart-home command. Inspired by Zubair Trabzada's Jarvis architecture and Arkham Tech styling.
+An end-to-end, high-intelligence tactical AI butler system and sci-fi Batcomputer HUD designed for Wayne Enterprises tactical operations and smart-home command. Built with Wayne Tech AI architecture and Arkham Tech styling.
 
 ![Batcomputer HUD](static/batcomputer_wakeword_hud.png)
 
@@ -36,6 +36,7 @@ An end-to-end, high-intelligence tactical AI butler system and sci-fi Batcompute
 
 ## Deployment & Running
 
+### Server Host (M1 Mac Mini / Linux)
 ```bash
 # 1. Start FastAPI Backend (Port 7776)
 python3 server.py
@@ -43,3 +44,21 @@ python3 server.py
 # 2. Start Dual HTTPS/HTTP Gateway Proxy (Port 7777)
 node proxy.js
 ```
+
+---
+
+## Client Installers (macOS & Windows)
+
+### 🍏 macOS (Apple Silicon M1/M2/M3/M4 & Intel)
+1. Double-click `install-macos.command` in Finder (or run in terminal):
+   ```bash
+   ./install-macos.sh
+   ```
+2. The installer automatically configures the Python virtual environment, installs dependencies, creates a Desktop launcher (`Launch-Batcomputer.command`), and optionally enables auto-start at login via `launchd`.
+
+### 🪟 Windows 10 & 11
+1. Right-click and run `install-windows.bat` (or in PowerShell):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
+   ```
+2. The installer sets up the virtual environment, installs audio/GUI dependencies, creates a Desktop shortcut (`Batcomputer Companion.lnk`), and optionally adds auto-start to your Windows Startup folder.

@@ -2614,7 +2614,7 @@ if __name__ == "__main__":
     parser.add_argument("--hud", action="store_true", help="Alias for --desktop")
     parser.add_argument("--no-gui", action="store_true", help="Run headless in terminal (desktop notifications still active)")
     parser.add_argument("--no-notify", action="store_true", help="Disable OS desktop notifications")
-    parser.add_argument("--briefing", action="store_true", help="Trigger proactive JARVIS briefing immediately on startup")
+    parser.add_argument("--briefing", action="store_true", help="Trigger proactive tactical briefing immediately on startup")
     parser.add_argument("--daemon", action="store_true", help="Run under systemd background daemon service")
     args = parser.parse_args()
 

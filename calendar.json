@@ -1868,8 +1868,8 @@
     "priority": "Google",
     "source": "Google",
     "status": "CONFIRMED",
-    "is_past": false,
-    "is_today": true
+    "is_past": true,
+    "is_today": false
   },
   {
     "id": "cal_69fe1a",
@@ -1880,8 +1880,8 @@
     "priority": "Google",
     "source": "Google",
     "status": "CONFIRMED",
-    "is_past": false,
-    "is_today": true
+    "is_past": true,
+    "is_today": false
   },
   {
     "id": "cal_0e39bd",
@@ -1893,7 +1893,7 @@
     "source": "Google",
     "status": "CONFIRMED",
     "is_past": false,
-    "is_today": false
+    "is_today": true
   },
   {
     "id": "cal_f415f3",

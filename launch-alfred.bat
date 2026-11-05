@@ -37,6 +37,10 @@ echo Server: https://batcomputer.jmrdserver.duckdns.org
 echo Wake words: "Computer", "Puter", "Hey Computer", "Hey Puter"
 echo Follow-Up Window: 10s automatic conversation without wake word
 echo.
-python alfred_daemon.py --server "https://batcomputer.jmrdserver.duckdns.org" --hud-url "https://batcomputer.jmrdserver.duckdns.org"
+if exist ".venv\Scripts\python.exe" (
+    .venv\Scripts\python.exe alfred_daemon.py --server "https://batcomputer.jmrdserver.duckdns.org" --hud-url "https://batcomputer.jmrdserver.duckdns.org" %*
+) else (
+    python alfred_daemon.py --server "https://batcomputer.jmrdserver.duckdns.org" --hud-url "https://batcomputer.jmrdserver.duckdns.org" %*
+)
 
 pause

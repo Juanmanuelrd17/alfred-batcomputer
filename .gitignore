@@ -4,11 +4,13 @@
 *.pem
 .env
 .env.local
+auth_config.json
 
 # Python & Node Caches
 __pycache__/
 *.pyc
 node_modules/
+.venv/
 
 # Audio Generation Cache
 audio_cache/*
