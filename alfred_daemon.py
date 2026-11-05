@@ -10,6 +10,8 @@ Features:
 - Instant Barge-In Interruption (cuts off 'Puter's voice the moment you speak)
 """
 
+from __future__ import annotations
+
 import os
 import io
 import re
@@ -30,12 +32,15 @@ import argparse
 import tempfile
 import threading
 import subprocess
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 from datetime import datetime, date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import deque
 from pathlib import Path
-from typing import Optional, Tuple, Callable
+from typing import Optional, Tuple, Callable, Any, Dict, List, Union
 import requests
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -845,7 +850,8 @@ class AlfredBackgroundDaemon:
         print("=================================================================")
         print("🦇 'PUTER // BCv1.2 NATIVE COMPANION & VOICE DAEMON ONLINE")
         print(f"🔗 Server: {self.server_url}")
-        print(f"🗣️ Wake Words: {'\"Computer\", \"Puter\", \"Hey Computer\", \"Hey Puter\"' if self.wake_word_required else 'Always Listening (No Wake Word Required)'}")
+        wake_desc = '"Computer", "Puter", "Hey Computer", "Hey Puter"' if self.wake_word_required else 'Always Listening (No Wake Word Required)'
+        print(f"🗣️ Wake Words: {wake_desc}")
         print("🔔 Notifications: Active (Hearing + Live Response Transcription)")
         print("🤖 Heavy Workloads: Autonomously delegated to Alfred (Hermes Agent)")
         print("=================================================================")
@@ -2597,7 +2603,8 @@ def acquire_single_instance_lock() -> bool:
     lock_file = Path(tempfile.gettempdir()) / "alfred_batcomputer_daemon.lock"
     try:
         _INSTANCE_LOCK_FD = open(lock_file, "w")
-        fcntl.flock(_INSTANCE_LOCK_FD, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if fcntl:
+            fcntl.flock(_INSTANCE_LOCK_FD, fcntl.LOCK_EX | fcntl.LOCK_NB)
         _INSTANCE_LOCK_FD.write(f"{os.getpid()}\n")
         _INSTANCE_LOCK_FD.flush()
         return True
