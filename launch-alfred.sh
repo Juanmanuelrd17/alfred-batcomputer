@@ -58,4 +58,11 @@ if [ "$IS_DAEMON" -eq 0 ]; then
 fi
 
 echo "🦇 Starting 'Puter BCv1.2 Native Companion App & Voice Daemon..."
-exec /usr/bin/python3 "$DIR/alfred_daemon.py" --server "https://batcomputer.jmrdserver.duckdns.org" --hud-url "https://batcomputer.jmrdserver.duckdns.org" "$@"
+PYTHON_EXEC="/usr/bin/python3"
+if [ -x "$DIR/.venv/bin/python3" ]; then
+    PYTHON_EXEC="$DIR/.venv/bin/python3"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_EXEC="$(command -v python3)"
+fi
+
+exec "$PYTHON_EXEC" "$DIR/alfred_daemon.py" --server "https://batcomputer.jmrdserver.duckdns.org" --hud-url "https://batcomputer.jmrdserver.duckdns.org" "$@"
