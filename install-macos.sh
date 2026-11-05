@@ -68,14 +68,38 @@ chmod +x "$DIR"/*.py 2>/dev/null || true
 echo ""
 echo "🚀 [3/3] Generating macOS Finder Launchers..."
 LAUNCHER="$DIR/Launch-Batcomputer.command"
-cat << 'EOF' > "$LAUNCHER"
+cat << EOF > "$LAUNCHER"
 #!/usr/bin/env bash
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$DIR"
-if [ -f "$DIR/.venv/bin/python3" ]; then
-    exec "$DIR/.venv/bin/python3" "$DIR/alfred_daemon.py" --server "https://batcomputer.jmrdserver.duckdns.org" --hud-url "https://batcomputer.jmrdserver.duckdns.org" "$@"
+# ==============================================================================
+# WAYNE ENTERPRISES // BATCOMPUTER BCv1.2 LAUNCH PROTOCOL
+# ==============================================================================
+REPO_DIR="$DIR"
+
+# Dynamic fallback if directory was moved
+if [ ! -f "\$REPO_DIR/alfred_daemon.py" ]; then
+    CANDIDATE="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+    if [ -f "\$CANDIDATE/alfred_daemon.py" ]; then
+        REPO_DIR="\$CANDIDATE"
+    elif [ -f "\$HOME/alfred-batcomputer/alfred_daemon.py" ]; then
+        REPO_DIR="\$HOME/alfred-batcomputer"
+    fi
+fi
+
+if [ ! -f "\$REPO_DIR/alfred_daemon.py" ]; then
+    echo "❌ Error: Could not locate alfred-batcomputer repository."
+    echo "   Expected at: $DIR"
+    exit 1
+fi
+
+cd "\$REPO_DIR"
+
+if [ -f "\$REPO_DIR/.venv/bin/python3" ]; then
+    exec "\$REPO_DIR/.venv/bin/python3" "\$REPO_DIR/alfred_daemon.py" --server "https://batcomputer.jmrdserver.duckdns.org" --hud-url "https://batcomputer.jmrdserver.duckdns.org" "\$@"
+elif command -v python3 >/dev/null 2>&1; then
+    exec python3 "\$REPO_DIR/alfred_daemon.py" --server "https://batcomputer.jmrdserver.duckdns.org" --hud-url "https://batcomputer.jmrdserver.duckdns.org" "\$@"
 else
-    exec python3 "$DIR/alfred_daemon.py" --server "https://batcomputer.jmrdserver.duckdns.org" --hud-url "https://batcomputer.jmrdserver.duckdns.org" "$@"
+    echo "❌ Error: Python 3 runtime not found."
+    exit 1
 fi
 EOF
 chmod +x "$LAUNCHER"
@@ -83,6 +107,7 @@ chmod +x "$LAUNCHER"
 # Optionally place shortcut on user's Desktop
 if [ -d "$HOME/Desktop" ]; then
     cp -f "$LAUNCHER" "$HOME/Desktop/Launch-Batcomputer.command" 2>/dev/null || true
+    chmod +x "$HOME/Desktop/Launch-Batcomputer.command" 2>/dev/null || true
     echo "✓ Placed 'Launch-Batcomputer.command' on your Desktop."
 fi
 
@@ -129,8 +154,9 @@ echo ""
 echo "================================================================="
 echo "🦇 INSTALLATION COMPLETE // WAYNE ENTERPRISES PROTOCOLS ACTIVE"
 echo "================================================================="
-echo "To start the Batcomputer voice companion manually, double-click:"
-echo "   $LAUNCHER"
-echo "Or run in terminal:"
-echo "   $DIR/Launch-Batcomputer.command"
+echo "To start the Batcomputer voice companion:"
+echo "  • Double-click 'Launch-Batcomputer.command' on your Desktop"
+echo "  • Or run in terminal:"
+echo "    open \"$LAUNCHER\""
+echo "    # or: \"$LAUNCHER\""
 echo "================================================================="
