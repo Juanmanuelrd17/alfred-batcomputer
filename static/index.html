@@ -3798,6 +3798,29 @@
     let currentLocalParent = '/home';
     let localBridgeOnline = false;
 
+    async function syncOmarchyTheme() {
+      try {
+        const res = await fetch(`${LOCAL_BRIDGE_URL}/local/theme`, { signal: AbortSignal.timeout(1500) });
+        if (!res.ok) return;
+        const data = await res.json();
+        const colors = data.colors || {};
+        if (colors.accent) {
+          document.documentElement.style.setProperty('--cyan', colors.accent);
+          document.documentElement.style.setProperty('--panel-border', colors.accent + '66');
+        }
+        if (colors.cyan) {
+          document.documentElement.style.setProperty('--cyan-bright', colors.cyan);
+        }
+        if (colors.bg) {
+          document.documentElement.style.setProperty('--bg', colors.bg);
+        }
+        if (data.theme_name) {
+          console.log(`🦇 [Omarchy Harmonizer]: Theme synchronized with "${data.theme_name}"`);
+        }
+      } catch (e) {}
+    }
+    syncOmarchyTheme();
+
     function switchDrawer(tab) {
       document.querySelectorAll('.drawer-tab').forEach(t => {
         t.classList.toggle('active', t.getAttribute('data-tab') === tab);

@@ -163,6 +163,9 @@ class DesktopNotifier:
             pass
 
 
+_ACTIVE_DAEMON: Optional[Any] = None
+
+
 class AlfredBackgroundDaemon:
     def __init__(
         self,
@@ -172,6 +175,8 @@ class AlfredBackgroundDaemon:
         notify_enabled: bool = True,
         ui_callback: Optional[Callable[[dict], None]] = None
     ):
+        global _ACTIVE_DAEMON
+        _ACTIVE_DAEMON = self
         self.server_url = server_url.rstrip("/")
         self.wake_word_required = wake_word_required
         self.voice = voice
@@ -207,6 +212,10 @@ class AlfredBackgroundDaemon:
         self.last_reply_text = ""
         self._chime_wav_high = self._build_chime_wav([880, 1320], duration_s=0.065)
         self._chime_wav_low = self._build_chime_wav([740, 520], duration_s=0.055)
+        self.watchdogs = None
+        self.timers = ButlerTimerManager(self)
+        self.timers.start()
+        self.focus = ArkhamFocusModeManager(self)
 
     def emit_ui(self, **kwargs):
         if "state" in kwargs:
@@ -766,25 +775,53 @@ class AlfredBackgroundDaemon:
             print(f"Error in execute_evening_shutdown: {e}")
             self.emit_ui(state="ERROR", reply_text=f"Shutdown sequence error: {e}")
 
-    def process_wav_bytes(self, wav_bytes: bytes):
-        self.emit_ui(state="TRANSCRIBING (MLX)...")
+    def transcribe_with_local_whisper(self, wav_bytes: bytes) -> Tuple[str, int]:
+        """Transcribe speech locally using whisper-cpp and ggml-base.en model without cloud/network dependency."""
+        tmp_wav = Path(tempfile.gettempdir()) / f"local_stt_{os.getpid()}_{int(time.time()*1000)}.wav"
         t0 = time.perf_counter()
+        model_path = BASE_DIR / "models" / "ggml-base.en.bin"
+        if not model_path.exists() or not shutil.which("whisper-cli"):
+            return "", 0
+        try:
+            tmp_wav.write_bytes(wav_bytes)
+            cmd = ["whisper-cli", "-m", str(model_path), "-nt", "-np", "-f", str(tmp_wav)]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=6)
+            elapsed = round((time.perf_counter() - t0) * 1000)
+            text = (res.stdout or "").strip()
+            tmp_wav.unlink(missing_ok=True)
+            return text, elapsed
+        except Exception as e:
+            print(f"[Local Whisper Error]: {e}")
+            tmp_wav.unlink(missing_ok=True)
+            return "", 0
+
+    def process_wav_bytes(self, wav_bytes: bytes):
+        self.emit_ui(state="TRANSCRIBING...")
+        t0 = time.perf_counter()
+        transcript = ""
+        stt_ms = 0
+
+        # Primary Fast-Path: Server STT (Metal GPU MLX-Whisper on Mac Mini)
         try:
             r = self.session.post(
                 f"{self.server_url}/api/transcribe",
                 files={"file": ("speech.wav", wav_bytes, "audio/wav")},
-                timeout=25
+                timeout=3.0
             )
-            if r.status_code != 200:
-                self.emit_ui(state="STANDBY")
-                return
-            data = r.json()
-            transcript = (data.get("text") or "").strip()
-            stt_ms = data.get("latency_ms", round((time.perf_counter() - t0) * 1000))
+            if r.status_code == 200:
+                data = r.json()
+                transcript = (data.get("text") or "").strip()
+                stt_ms = data.get("latency_ms", round((time.perf_counter() - t0) * 1000))
         except Exception as e:
-            print(f"[STT Connection Error]: {e}")
-            self.emit_ui(state="STANDBY")
-            return
+            print(f"[Server STT Bypass]: {e}")
+
+        # Secondary Resilient Fallback: Local Whisper-CPP (Zero-Cloud Air-Gapped)
+        if not transcript or len(transcript) < 2:
+            local_text, local_ms = self.transcribe_with_local_whisper(wav_bytes)
+            if local_text:
+                transcript = local_text
+                stt_ms = local_ms
+                print(f"🛡️ [Air-Gapped Whisper-CPP Fallback ({stt_ms}ms)]: \"{transcript}\"")
 
         if not transcript or len(transcript) < 2:
             self.emit_ui(state="STANDBY")
@@ -1897,6 +1934,81 @@ def handle_local_voice_shortcut(low_dir: str) -> Optional[dict]:
         cal_data = query_local_calendar_agenda()
         return {"reply": cal_data["summary"]}
 
+    # Live Fleet Sentry & Radar
+    if any(k in low_dir for k in ("fleet status", "ping fleet", "node status", "fleet nodes", "server status", "check servers", "ping nodes")):
+        radar = ping_fleet_radar()
+        online_nodes = [f"{n['name'].split(' ')[0]} ({n['latency_ms']}ms)" for n in radar["nodes"] if n["online"]]
+        reply = f"Fleet Sentry: {radar['online_count']} of {radar['total']} nodes online. Live latencies: {', '.join(online_nodes[:4])}, Master Ramos."
+        return {"reply": reply}
+
+    # Butler Timers & Scheduled Directives
+    m_rem = re.search(r"remind me in (\d+)\s*(minute|min|second|sec|hour|hr)s?\s*(?:to\s+)?(.*)", low_dir)
+    m_tim = re.search(r"(?:set\s+a\s+)?timer\s+(?:for\s+)?(\d+)\s*(minute|min|second|sec|hour|hr)s?\s*(?:for\s+)?(.*)", low_dir)
+    match_t = m_rem or m_tim
+    if match_t:
+        val = int(match_t.group(1))
+        unit = match_t.group(2).lower()
+        remainder = match_t.group(3).strip(" .,") or "Reminder"
+        mult = 3600 if "h" in unit else (60 if "m" in unit else 1)
+        dur_s = val * mult
+        if _ACTIVE_DAEMON and hasattr(_ACTIVE_DAEMON, "timers"):
+            _ACTIVE_DAEMON.timers.add_timer(dur_s, label=remainder)
+            return {"reply": f"Timer armed for {val} {unit}{'s' if val != 1 else ''} on '{remainder}', Master Ramos."}
+
+    if any(k in low_dir for k in ("cancel timer", "cancel my timer", "stop timer", "clear timer", "delete timer")):
+        if _ACTIVE_DAEMON and hasattr(_ACTIVE_DAEMON, "timers"):
+            res = _ACTIVE_DAEMON.timers.cancel_timer()
+            return {"reply": f"{res}, Master Ramos."}
+
+    if any(k in low_dir for k in ("my timers", "what timers", "active timers", "check timers")):
+        if _ACTIVE_DAEMON and hasattr(_ACTIVE_DAEMON, "timers"):
+            tl = _ACTIVE_DAEMON.timers.list_timers()
+            if not tl:
+                return {"reply": "No active countdown timers currently running, Master Ramos."}
+            summaries = [f"{t['label']} ({t['remaining_s']}s remaining)" for t in tl]
+            return {"reply": f"You have {len(tl)} active timer{'s' if len(tl) > 1 else ''}: {', '.join(summaries)}, Master Ramos."}
+
+    # Arkham Focus Protocol & Pomodoro Mode
+    if any(k in low_dir for k in ("start focus mode", "engage focus mode", "focus mode", "enter focus mode", "pomodoro")):
+        m_f = re.search(r"(\d+)\s*(?:minute|min)", low_dir)
+        mins = int(m_f.group(1)) if m_f else 25
+        if _ACTIVE_DAEMON and hasattr(_ACTIVE_DAEMON, "focus"):
+            reply = _ACTIVE_DAEMON.focus.start_focus_mode(mins)
+            return {"reply": reply}
+
+    if any(k in low_dir for k in ("end focus mode", "cancel focus mode", "stop focus mode", "exit focus mode")):
+        if _ACTIVE_DAEMON and hasattr(_ACTIVE_DAEMON, "focus"):
+            reply = _ACTIVE_DAEMON.focus.stop_focus_mode()
+            return {"reply": reply}
+
+    # Omarchy Theme & Wallpaper Harmonizer
+    if any(k in low_dir for k in ("sync theme", "sync wallpaper", "update theme", "omarchy theme", "theme sync")):
+        t_info = get_omarchy_theme_colors()
+        return {"reply": f"Batcomputer HUD synchronized with active Omarchy theme: {t_info['theme_name']}, Master Ramos."}
+
+    # Anycubic Kobra 3D Printer Sentry
+    if any(k in low_dir for k in ("printer status", "3d printer", "print status", "how is the print", "how's the print", "check printer", "anycubic status", "kobra status")):
+        try:
+            if _ACTIVE_DAEMON and hasattr(_ACTIVE_DAEMON, "session"):
+                dev_res = _ACTIVE_DAEMON.session.get(f"{_ACTIVE_DAEMON.server_url}/api/smart-home/devices", timeout=5).json()
+                p3d = dev_res.get("printer_3d", {})
+                if p3d:
+                    st = p3d.get("state", "idle")
+                    prog = p3d.get("progress_pct", "0")
+                    job = p3d.get("job_name", "None")
+                    nozzle = p3d.get("nozzle_temp_c", "0")
+                    bed = p3d.get("bed_temp_c", "0")
+                    rem = p3d.get("time_remaining_min", "0")
+                    reply = (
+                        f"Your Anycubic Kobra 3D printer is currently {st} at {prog}% completion. "
+                        f"Job: '{job}'. Nozzle is at {nozzle}°C, bed at {bed}°C, "
+                        f"with {rem} minutes remaining, Master Ramos."
+                    )
+                    return {"reply": reply}
+        except Exception as e:
+            print(f"[Printer Query Error]: {e}")
+        return {"reply": "Unable to communicate with the Anycubic 3D printer telemetry feed at this moment, Master Ramos."}
+
     if not any(low_dir.startswith(prefix) or f" {prefix}" in low_dir for prefix in ("open ", "launch ", "start ", "browse ", "show my ")):
         return None
     if "download" in low_dir:
@@ -1926,6 +2038,260 @@ def handle_local_voice_shortcut(low_dir: str) -> Optional[dict]:
     return None
 
 
+class ButlerTimer:
+    def __init__(self, timer_id: str, label: str, duration_s: int, action_cmd: Optional[str] = None):
+        self.timer_id = timer_id
+        self.label = label
+        self.duration_s = duration_s
+        self.start_time = time.time()
+        self.expire_at = self.start_time + duration_s
+        self.action_cmd = action_cmd
+
+    def remaining_s(self) -> int:
+        return max(0, int(self.expire_at - time.time()))
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.timer_id,
+            "label": self.label,
+            "duration_s": self.duration_s,
+            "remaining_s": self.remaining_s(),
+            "expire_at": self.expire_at,
+            "action_cmd": self.action_cmd,
+        }
+
+
+class ButlerTimerManager:
+    """Manages proactive countdown timers and scheduled directives for 'Puter."""
+    def __init__(self, daemon):
+        self.daemon = daemon
+        self.timers: Dict[str, ButlerTimer] = {}
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run_loop, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def add_timer(self, duration_s: int, label: str = "Timer", action_cmd: Optional[str] = None) -> ButlerTimer:
+        tid = f"timer_{int(time.time())}_{len(self.timers)+1}"
+        timer = ButlerTimer(tid, label, duration_s, action_cmd)
+        with self._lock:
+            self.timers[tid] = timer
+        return timer
+
+    def cancel_timer(self, query: str = "") -> str:
+        with self._lock:
+            if not self.timers:
+                return "No active timers to cancel"
+            if not query or query.lower() in ("all", "every"):
+                count = len(self.timers)
+                self.timers.clear()
+                return f"Cancelled all {count} active timers"
+            target_id = None
+            for tid, t in self.timers.items():
+                if query.lower() in t.label.lower() or query == tid:
+                    target_id = tid
+                    break
+            if target_id:
+                lbl = self.timers[target_id].label
+                del self.timers[target_id]
+                return f"Cancelled timer for '{lbl}'"
+            latest_id = list(self.timers.keys())[-1]
+            lbl = self.timers[latest_id].label
+            del self.timers[latest_id]
+            return f"Cancelled timer for '{lbl}'"
+
+    def list_timers(self) -> List[dict]:
+        with self._lock:
+            return [t.to_dict() for t in self.timers.values()]
+
+    def _run_loop(self):
+        while not self._stop_event.is_set():
+            time.sleep(1.0)
+            now = time.time()
+            expired = []
+            with self._lock:
+                for tid, t in list(self.timers.items()):
+                    if now >= t.expire_at:
+                        expired.append(t)
+                        del self.timers[tid]
+
+            for t in expired:
+                print(f"⏰ [Butler Timer Expired]: {t.label} ({t.duration_s}s)")
+                self.daemon.play_tactical_sound("alert")
+                mins = t.duration_s // 60
+                dur_str = f"{mins} minute{'s' if mins != 1 else ''}" if mins >= 1 else f"{t.duration_s} seconds"
+                self.daemon.notifier.notify(
+                    "⏰ 'Puter Timer Completed",
+                    f"\"{t.label}\" ({dur_str}) has concluded, Master Ramos.",
+                    timeout_ms=10000,
+                    urgency="critical"
+                )
+                self.daemon._speak_short_reply(f"Master Ramos, your timer for '{t.label}' has completed.")
+                if t.action_cmd:
+                    try:
+                        self.daemon.send_text_directive(t.action_cmd)
+                    except Exception as e:
+                        print(f"[Timer Action Error]: {e}")
+
+
+class ArkhamFocusModeManager:
+    """Manages single-directive focus protocol (smart lighting dimming, volume control, VS Code raising, sentry suppression)."""
+    def __init__(self, daemon):
+        self.daemon = daemon
+        self.is_active = False
+        self.start_time = 0.0
+        self.duration_min = 25
+
+    def start_focus_mode(self, duration_min: int = 25) -> str:
+        if self.is_active:
+            elapsed = int((time.time() - self.start_time) // 60)
+            rem = max(1, self.duration_min - elapsed)
+            return f"Arkham Focus Protocol already engaged. {rem} minutes remaining, Master Ramos."
+        
+        self.is_active = True
+        self.start_time = time.time()
+        self.duration_min = duration_min
+        
+        if self.daemon.watchdogs:
+            self.daemon.watchdogs.focus_mode = True
+
+        handle_desktop_action("audio.set_volume", 20)
+        handle_desktop_action("app.launch", "code")
+
+        if hasattr(self.daemon, "timers"):
+            self.daemon.timers.add_timer(
+                duration_min * 60,
+                label=f"Arkham Focus Protocol ({duration_min}m)",
+                action_cmd="end focus mode"
+            )
+
+        try:
+            self.daemon.session.post(
+                f"{self.daemon.server_url}/api/chat",
+                json={"message": "turn bedroom lights to 15 percent amber focus mode", "skip_tts": True},
+                timeout=3
+            )
+        except Exception:
+            pass
+
+        self.daemon.play_tactical_sound("complete")
+        self.daemon.notifier.notify(
+            "🎯 Arkham Focus Protocol Engaged",
+            f"Focus window: {duration_min} minutes.\nWorkstation ambient suppression active.",
+            timeout_ms=8000
+        )
+        return f"Arkham Focus Protocol engaged for {duration_min} minutes, Master Ramos. Workstation noise suppressed, lighting dimmed, and terminal focused."
+
+    def stop_focus_mode(self, natural_completion: bool = False) -> str:
+        if not self.is_active:
+            return "No active focus protocol currently running, Master Ramos."
+        self.is_active = False
+        if self.daemon.watchdogs:
+            self.daemon.watchdogs.focus_mode = False
+
+        try:
+            self.daemon.session.post(
+                f"{self.daemon.server_url}/api/chat",
+                json={"message": "restore bedroom lights to 80 percent", "skip_tts": True},
+                timeout=3
+            )
+        except Exception:
+            pass
+
+        self.daemon.play_tactical_sound("complete")
+        self.daemon.notifier.notify(
+            "🎯 Focus Protocol Concluded",
+            "Focus session ended. Standard workstation telemetry restored.",
+            timeout_ms=8000
+        )
+        if natural_completion:
+            return "Arkham Focus Protocol concluded, Master Ramos. Well done. Normal workstation operations restored."
+        return "Arkham Focus Protocol disengaged, Master Ramos."
+
+
+def ping_fleet_radar() -> dict:
+    """Fast concurrent ping check across all 6 Wayne Tech nodes."""
+    nodes = [
+        {"name": "Mac Mini M1 (Host)", "host": "100.77.249.27", "port": 7776, "role": "Central Brain & Voice"},
+        {"name": "Gaming PC (Workstation)", "host": "127.0.0.1", "port": 7778, "role": "Hyprland Workstation"},
+        {"name": "Home Assistant", "host": "100.93.110.2", "port": 8123, "role": "Smart Home Hub"},
+        {"name": "OptiPlex 9010 (MC Craftoria)", "host": "192.168.1.131", "port": 8443, "role": "Crafty & Nextcloud"},
+        {"name": "ZimaOS / jmserver (Ingress)", "host": "100.84.108.41", "port": 80, "role": "NPM Proxy & Pi-hole"},
+        {"name": "Proxmox PVE Cluster", "host": "100.103.137.34", "port": 8006, "role": "Virtualization Node"}
+    ]
+    results = []
+
+    def _check(node):
+        t0 = time.perf_counter()
+        online = False
+        lat = 0
+        try:
+            with socket.create_connection((node["host"], node["port"]), timeout=0.6):
+                online = True
+                lat = round((time.perf_counter() - t0) * 1000, 1)
+        except Exception:
+            try:
+                r = subprocess.run(["ping", "-c", "1", "-W", "1", node["host"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if r.returncode == 0:
+                    online = True
+                    lat = round((time.perf_counter() - t0) * 1000, 1)
+            except Exception:
+                pass
+        results.append({
+            "name": node["name"],
+            "host": node["host"],
+            "role": node["role"],
+            "online": online,
+            "latency_ms": lat if online else None,
+            "status": "ONLINE" if online else "UNREACHABLE"
+        })
+
+    threads = [threading.Thread(target=_check, args=(n,)) for n in nodes]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=1.0)
+
+    online_count = sum(1 for r in results if r["online"])
+    return {
+        "total": len(nodes),
+        "online_count": online_count,
+        "nodes": sorted(results, key=lambda x: x["name"])
+    }
+
+
+def get_omarchy_theme_colors() -> dict:
+    theme_name = "Omarchy Dark"
+    try:
+        r = subprocess.run(["omarchy-theme-current"], capture_output=True, text=True, timeout=1.0)
+        if r.returncode == 0 and r.stdout.strip():
+            theme_name = r.stdout.strip()
+    except Exception:
+        pass
+
+    colors = {}
+    try:
+        r2 = subprocess.run(["omarchy-theme-color", "--all"], capture_output=True, text=True, timeout=1.0)
+        if r2.returncode == 0 and r2.stdout.strip():
+            for line in r2.stdout.splitlines():
+                parts = line.strip().split("\t", 1)
+                if len(parts) == 2:
+                    colors[parts[0].strip()] = parts[1].strip()
+    except Exception:
+        pass
+
+    return {
+        "theme_name": theme_name,
+        "colors": colors,
+        "primary_accent": colors.get("accent", "#00e5ff"),
+        "background": colors.get("bg", "#01060d"),
+        "cyan": colors.get("cyan", "#00e5ff"),
+        "blue": colors.get("blue", "#0077ff"),
+    }
+
+
 class TacticalWatchdogManager:
     """Proactive background watchdogs for storage thresholds, thermal spikes, and game/focus mode detection."""
     def __init__(self, daemon: AlfredBackgroundDaemon):
@@ -1933,6 +2299,7 @@ class TacticalWatchdogManager:
         self.last_storage_alert = 0.0
         self.last_thermal_alert = 0.0
         self.gaming_mode = False
+        self.focus_mode = False
         self._stop_event = threading.Event()
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
 
@@ -1969,7 +2336,7 @@ class TacticalWatchdogManager:
                 self.last_storage_alert = now
                 msg = f"Primary storage is at {used_pct:.1f}% capacity ({free_gb:.1f} GB free). Suggest clearing pacman cache."
                 self.daemon.notifier.notify("⚠️ Storage Threshold Warning", msg, timeout_ms=8000, urgency="critical")
-                if not self.gaming_mode:
+                if not self.gaming_mode and not self.focus_mode:
                     self.daemon.play_tactical_sound("warning")
                     self.daemon._speak_short_reply(f"Tactical alert, Master Ramos. Primary storage has reached {int(used_pct)} percent capacity. You have {free_gb:.1f} gigabytes remaining.")
         except Exception:
@@ -1987,7 +2354,7 @@ class TacticalWatchdogManager:
                 self.last_thermal_alert = now
                 msg = f"High thermal load detected: CPU at {cpu_temp}°C, GPU at {gpu_temp}°C."
                 self.daemon.notifier.notify("🔥 High Thermal Alert", msg, timeout_ms=8000, urgency="critical")
-                if not self.gaming_mode:
+                if not self.gaming_mode and not self.focus_mode:
                     self.daemon.play_tactical_sound("warning")
                     self.daemon._speak_short_reply("Warning, Master Ramos. Rig temperatures have exceeded 85 degrees Celsius.")
         except Exception:
@@ -2181,9 +2548,39 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                 self._send_json({
                     "ok": True,
                     "gaming_mode": getattr(daemon.watchdogs, "gaming_mode", False) if daemon.watchdogs else False,
+                    "focus_mode": getattr(daemon.watchdogs, "focus_mode", False) if daemon.watchdogs else False,
                     "last_storage_alert": getattr(daemon.watchdogs, "last_storage_alert", 0.0) if daemon.watchdogs else 0.0,
                     "last_thermal_alert": getattr(daemon.watchdogs, "last_thermal_alert", 0.0) if daemon.watchdogs else 0.0,
                 })
+                return
+
+            if parsed.path == "/local/fleet":
+                self._send_json(ping_fleet_radar())
+                return
+
+            if parsed.path == "/local/timers":
+                tl = daemon.timers.list_timers() if hasattr(daemon, "timers") else []
+                self._send_json({"ok": True, "timers": tl})
+                return
+
+            if parsed.path == "/local/focus":
+                self._send_json({
+                    "ok": True,
+                    "is_active": getattr(daemon.focus, "is_active", False) if hasattr(daemon, "focus") else False,
+                    "duration_min": getattr(daemon.focus, "duration_min", 25) if hasattr(daemon, "focus") else 25,
+                })
+                return
+
+            if parsed.path == "/local/theme":
+                self._send_json(get_omarchy_theme_colors())
+                return
+
+            if parsed.path == "/local/printer":
+                try:
+                    dev_res = daemon.session.get(f"{daemon.server_url}/api/smart-home/devices", timeout=5).json()
+                    self._send_json({"ok": True, "printer_3d": dev_res.get("printer_3d", {})})
+                except Exception as e:
+                    self._send_json({"ok": False, "error": str(e)}, status=502)
                 return
 
             self._send_json({"error": "Not found"}, status=404)
@@ -2305,6 +2702,37 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                 self._send_json({"ok": True, "target": target, "state": "SCANNING"})
                 return
 
+            if parsed.path == "/local/timers":
+                dur_s = int(data.get("duration_sec", 300))
+                lbl = data.get("label", "Timer")
+                cmd = data.get("action_cmd")
+                t = daemon.timers.add_timer(dur_s, label=lbl, action_cmd=cmd)
+                self._send_json({"ok": True, "timer": t.to_dict()})
+                return
+
+            if parsed.path == "/local/timers/cancel":
+                res = daemon.timers.cancel_timer(data.get("label") or data.get("id") or "")
+                self._send_json({"ok": True, "message": res})
+                return
+
+            if parsed.path == "/local/focus":
+                act = data.get("action", "start")
+                mins = int(data.get("duration_min", 25))
+                if act == "stop":
+                    rep = daemon.focus.stop_focus_mode()
+                else:
+                    rep = daemon.focus.start_focus_mode(mins)
+                self._send_json({"ok": True, "message": rep, "is_active": daemon.focus.is_active})
+                return
+
+            self._send_json({"error": "Unknown endpoint"}, status=404)
+
+        def do_DELETE(self):
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path.startswith("/local/timers"):
+                res = daemon.timers.cancel_timer()
+                self._send_json({"ok": True, "message": res})
+                return
             self._send_json({"error": "Unknown endpoint"}, status=404)
 
     def _serve():
