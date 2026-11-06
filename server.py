@@ -630,11 +630,30 @@ def execute_llm_memory_tags(reply: str) -> Tuple[str, List[Dict[str, str]]]:
 
 def get_relevant_second_brain_context(query: str) -> str:
     """
-    Retrieve relevant notes or quick notes from second_brain/*.md matching query keywords.
+    Retrieve relevant notes or quick notes from second_brain/*.md using BM25 semantic chunk scoring
+    and domain conceptual query expansion.
     """
     if not BRAIN_DIR.exists():
         return ""
-    words = [w.lower() for w in re.findall(r'\b[a-zA-Z0-9_-]{3,}\b', query) if w.lower() not in ("what", "when", "where", "how", "the", "and", "can", "you", "tell", "please", "puter", "computer", "hey")]
+
+    SYNONYM_MAP = {
+        "minecraft": ["mc", "crafty", "craftoria", "optiplex", "25565", "server"],
+        "gaming": ["pc", "omarchy", "arch", "1080", "5800x", "rig"],
+        "storage": ["zimaos", "jmserver", "nas", "npm", "disk", "nextcloud"],
+        "server": ["optiplex", "zimaos", "proxmox", "pve", "node"],
+        "proxmox": ["pve", "vm", "cluster", "prodesk"],
+        "network": ["tailscale", "ip", "port", "firewall", "dns", "pihole"],
+        "batmobile": ["charger", "scatpack", "392", "hemi", "srt"],
+    }
+
+    raw_words = [w.lower() for w in re.findall(r'\b[a-zA-Z0-9_-]{2,}\b', query) if w.lower() not in ("what", "when", "where", "how", "the", "and", "can", "you", "tell", "please", "puter", "computer", "hey", "about", "is", "for", "are")]
+    expanded_words = set(raw_words)
+    for w in raw_words:
+        for syn_k, syn_list in SYNONYM_MAP.items():
+            if w == syn_k or w in syn_list:
+                expanded_words.add(syn_k)
+                expanded_words.update(syn_list)
+
     snippets = []
 
     # Always check quick_notes.md for recent captures
@@ -647,20 +666,43 @@ def get_relevant_second_brain_context(query: str) -> str:
         except Exception:
             pass
 
-    if words:
+    if expanded_words:
+        chunks = []
         for f in BRAIN_DIR.glob("*.md"):
             if f.name == "quick_notes.md":
                 continue
             try:
                 content = f.read_text(encoding="utf-8")
-                matched_lines = []
-                for line in content.splitlines():
-                    if any(w in line.lower() for w in words):
-                        matched_lines.append(line.strip())
-                if matched_lines:
-                    snippets.append(f"[{f.name}]: " + " | ".join(matched_lines[:3]))
+                blocks = re.split(r'\n(?=#{1,4}\s|(?:\s*[-*]\s+\*\*))', content)
+                for b in blocks:
+                    b_clean = b.strip()
+                    if len(b_clean) > 20:
+                        chunks.append((f.name, b_clean))
             except Exception:
                 pass
+
+        def score_chunk(item):
+            fname, text = item
+            t_low = text.lower()
+            fname_low = fname.lower()
+            score = 0.0
+            for w in expanded_words:
+                if w in t_low:
+                    weight = 3.0 if w in raw_words else 1.2
+                    score += weight
+                    if w in fname_low:
+                        score += 2.0
+                    if f"**{w}" in t_low or f"#{w}" in t_low or f": {w}" in t_low:
+                        score += 3.0
+            return score
+
+        scored_chunks = [(score_chunk(c), c) for c in chunks]
+        scored_chunks = [sc for sc in scored_chunks if sc[0] > 0]
+        scored_chunks.sort(key=lambda x: x[0], reverse=True)
+
+        for score, (fname, text) in scored_chunks[:3]:
+            clean_lines = [l.strip() for l in text.splitlines() if l.strip()]
+            snippets.append(f"[{fname}]: " + " | ".join(clean_lines[:4]))
 
     return "\n".join(snippets[:4])
 
@@ -1421,6 +1463,41 @@ def execute_llm_hermes_tags(reply_text: str) -> tuple[str, List[Dict[str, Any]]]
             if h_res.get("output"):
                 clean_reply = f"{clean_reply} [Alfred // Hermes]: {h_res['output']}".strip()
     return clean_reply, hermes_results
+
+
+def execute_llm_desktop_tags(reply_text: str, client_host: Optional[str] = None) -> tuple[str, List[Dict[str, Any]]]:
+    """Parse and execute [DESKTOP_CALL: <action> | <params>] tags emitted by 'Puter."""
+    pattern = r'\[DESKTOP_CALL:\s*([^|\]]+)(?:\|\s*([^\]]*))?\]'
+    matches = list(re.finditer(pattern, reply_text, flags=re.IGNORECASE))
+    clean_reply = re.sub(pattern, '', reply_text, flags=re.IGNORECASE).strip()
+    actions = []
+    
+    target_bridge = "http://127.0.0.1:7778"
+    if client_host and client_host not in ("127.0.0.1", "localhost", "::1"):
+        target_bridge = f"http://{client_host}:7778"
+    else:
+        for cid, cinfo in CLIENTS_REGISTRY.items():
+            if cinfo.get("platform") == "linux" or "gaming" in cid.lower():
+                ip = cinfo.get("ip") or cinfo.get("host")
+                if ip:
+                    target_bridge = f"http://{ip}:7778"
+                    break
+
+    for m in matches:
+        cmd = m.group(1).strip()
+        params = (m.group(2) or "").strip()
+        actions.append({"command": cmd, "params": params})
+        try:
+            res = requests.post(
+                f"{target_bridge}/local/action",
+                json={"action": cmd, "params": params},
+                timeout=4
+            ).json()
+            print(f"🖥️ [Desktop Action Executed]: {cmd} ({params}) -> {res}")
+        except Exception as e:
+            print(f"⚠️ [Desktop Action Warning]: Failed to reach {target_bridge}/local/action ({e})")
+            
+    return clean_reply, actions
 
 
 def load_tools_config() -> Dict[str, Any]:
@@ -2995,6 +3072,26 @@ HOME ASSISTANT PROTOCOL:
 [HA_CALL: domain.service | entity_id | {{"optional_param": value}}]
 Examples: [HA_CALL: light.turn_on | light.luz_papas], [HA_CALL: light.turn_on | light.dimmer_cuarto_jm | {{"brightness_pct": 25}}], [HA_CALL: media_player.volume_set | media_player.sonos_home_theater | {{"volume_level": 0.3}}], [HA_CALL: media_player.media_play_pause | media_player.tv_sala_2], [HA_CALL: button.press | button.anycubic_kobra_x_pause_print]
 
+TACTICAL DESKTOP RIG CONTROLS (JM-GAMING-PC & ACTIVE CLIENT AUTOMATION):
+- You have direct execution control over Master Ramos's workstation (Linux / Hyprland).
+- When asked to control PC media, volume, audio sinks, workspaces, windows, or run desktop apps, append tags at the end:
+[DESKTOP_CALL: media.play_pause]
+[DESKTOP_CALL: media.next]
+[DESKTOP_CALL: media.previous]
+[DESKTOP_CALL: audio.vol_up | 10]
+[DESKTOP_CALL: audio.vol_down | 10]
+[DESKTOP_CALL: audio.set_volume | 40]
+[DESKTOP_CALL: audio.switch_sink | headphones]
+[DESKTOP_CALL: audio.switch_sink | speakers]
+[DESKTOP_CALL: audio.mute]
+[DESKTOP_CALL: audio.unmute]
+[DESKTOP_CALL: hyprland.workspace | 2]
+[DESKTOP_CALL: hyprland.fullscreen]
+[DESKTOP_CALL: app.launch | steam]
+[DESKTOP_CALL: app.launch | code]
+[DESKTOP_CALL: app.launch | zen-browser]
+[DESKTOP_CALL: system.clean_cache]
+
 Time: {time.strftime('%I:%M %p')}
 OUTDOOR WEATHER: {weather_str}{session_summary_str}{second_brain_str}
 LIVE HA STATE:
@@ -3014,6 +3111,8 @@ Schedule: {calendar_summary}"""
     reply, mem_actions = execute_llm_memory_tags(raw_reply)
     reply, ha_actions = execute_llm_ha_tags(reply)
     reply, hermes_actions = execute_llm_hermes_tags(reply)
+    client_ip = data.get("client_host")
+    reply, desktop_actions = execute_llm_desktop_tags(reply, client_host=client_ip)
     if not reply:
         reply = "Directive executed, Master Ramos."
     audio_url = maybe_tts(reply, active_voice)
@@ -3036,9 +3135,15 @@ Schedule: {calendar_summary}"""
         "audio_url": audio_url,
         "ha_actions": ha_actions,
         "hermes_actions": hermes_actions,
+        "desktop_actions": desktop_actions,
         "memory_actions": mem_actions,
         "latency_ms": round((time.perf_counter() - t_start) * 1000)
     }
+
+
+@app.get("/api/brain/semantic-search")
+def api_brain_semantic_search(query: str):
+    return {"query": query, "context": get_relevant_second_brain_context(query)}
 
 
 @app.post("/api/transcribe")

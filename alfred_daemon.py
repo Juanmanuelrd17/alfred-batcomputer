@@ -311,6 +311,32 @@ class AlfredBackgroundDaemon:
                     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     break
 
+    def play_tactical_sound(self, effect: str):
+        """Asynchronously play lightweight tactical sound effects without blocking UI or contending PipeWire."""
+        sound_map = {
+            "scan": "/usr/share/sounds/freedesktop/stereo/camera-shutter.oga",
+            "complete": "/usr/share/sounds/freedesktop/stereo/complete.oga",
+            "warning": "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga",
+            "alert": "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga",
+            "chime": self._chime_wav_high,
+        }
+        target = sound_map.get(effect, self._chime_wav_high)
+        if sys.platform == "darwin":
+            snd = "/System/Library/Sounds/Submarine.aiff" if effect == "scan" else "/System/Library/Sounds/Tink.aiff"
+            subprocess.Popen(["afplay", snd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif sys.platform == "win32":
+            try:
+                import winsound
+                winsound.PlaySound(self._chime_wav_high, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            except Exception:
+                pass
+        else:
+            snd_file = target if Path(target).exists() else self._chime_wav_high
+            for cmd in (["pw-play", "--volume", "0.35", str(snd_file)], ["paplay", str(snd_file)]):
+                if shutil.which(cmd[0]):
+                    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    break
+
     def _on_playback_ended(self):
         """Called immediately when TTS audio finishes playing to open the 10s seamless conversation window."""
         self.awaiting_followup_until = time.time() + 10.0
@@ -380,27 +406,99 @@ class AlfredBackgroundDaemon:
             print(f"['Puter Audio Warning]: {e}")
             self._on_playback_ended()
 
-    def capture_local_screen_b64(self) -> Optional[str]:
-        tmp_img = Path(tempfile.gettempdir()) / f"alfred_screen_{os.getpid()}.png"
+    def capture_local_screen_b64(self, target: str = "active_window") -> Optional[str]:
+        tmp_img = Path(tempfile.gettempdir()) / f"alfred_screen_{os.getpid()}_{int(time.time()*1000)}.png"
         try:
             if sys.platform == "darwin":
-                subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "png", str(tmp_img)], timeout=3, check=True)
+                if target == "active_window":
+                    subprocess.run(["/usr/sbin/screencapture", "-w", "-x", "-t", "png", str(tmp_img)], timeout=3)
+                if not tmp_img.exists():
+                    subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "png", str(tmp_img)], timeout=3, check=True)
             else:
-                for cmd in [
-                    ["grim", str(tmp_img)],
-                    ["gnome-screenshot", "-f", str(tmp_img)],
-                    ["import", "-window", "root", str(tmp_img)],
-                ]:
-                    if shutil.which(cmd[0]):
-                        subprocess.run(cmd, timeout=3, check=True)
-                        break
+                captured = False
+                if target == "active_window" and os.environ.get("WAYLAND_DISPLAY"):
+                    try:
+                        act = subprocess.run(["hyprctl", "activewindow", "-j"], capture_output=True, text=True, timeout=1.5)
+                        if act.returncode == 0 and act.stdout.strip():
+                            aw = json.loads(act.stdout)
+                            at = aw.get("at", [0, 0])
+                            sz = aw.get("size", [0, 0])
+                            if sz[0] > 20 and sz[1] > 20:
+                                geom = f"{at[0]},{at[1]} {sz[0]}x{sz[1]}"
+                                r = subprocess.run(["grim", "-g", geom, str(tmp_img)], timeout=3)
+                                if r.returncode == 0 and tmp_img.exists():
+                                    captured = True
+                    except Exception:
+                        pass
+                
+                if not captured:
+                    # Capture primary display or full desktop
+                    for cmd in [
+                        ["grim", "-o", "DP-1", str(tmp_img)],
+                        ["grim", str(tmp_img)],
+                        ["gnome-screenshot", "-f", str(tmp_img)],
+                        ["import", "-window", "root", str(tmp_img)],
+                    ]:
+                        if shutil.which(cmd[0]):
+                            try:
+                                subprocess.run(cmd, timeout=3, check=True)
+                                if tmp_img.exists():
+                                    captured = True
+                                    break
+                            except Exception:
+                                pass
             if tmp_img.exists():
                 b64 = base64.b64encode(tmp_img.read_bytes()).decode("utf-8")
                 tmp_img.unlink(missing_ok=True)
                 return b64
-        except Exception:
+        except Exception as e:
+            print(f"[Vision Capture Warning]: {e}")
             tmp_img.unlink(missing_ok=True)
         return None
+
+    def execute_vision_directive(self, prompt: str, target: str = "active_window"):
+        target_name = "focused window" if target == "active_window" else "multi-monitor desktop"
+        print(f"👁️ [Vision Analysis]: Capturing {target_name} for prompt: \"{prompt}\"")
+        self.emit_ui(state="SCANNING SCREEN...", user_text=prompt)
+        self.play_tactical_sound("scan")
+        self.notifier.notify("👁️ Batcomputer Vision", f"Scanning {target_name}...\nAnalyzing tactical visual feed...", timeout_ms=4000)
+        
+        b64_img = self.capture_local_screen_b64(target=target)
+        if not b64_img:
+            err = f"Could not capture screen feed on {socket.gethostname()}, Master Ramos."
+            self.emit_ui(state="ERROR", reply_text=err)
+            self._speak_short_reply(err)
+            return
+
+        try:
+            v_res = self.session.post(
+                f"{self.server_url}/api/vision",
+                json={
+                    "image": b64_img,
+                    "client_host": socket.gethostname(),
+                    "target": "client",
+                    "prompt": prompt,
+                    "skip_tts": False
+                },
+                timeout=25
+            ).json()
+            reply = v_res.get("reply", "Visual analysis complete, Master Ramos.")
+            lat = v_res.get("latency_ms", 0)
+            print(f"🦇 ['Puter Vision ({lat}ms)]: \"{reply}\"")
+            self.emit_ui(state="SPEAKING", user_text=prompt, reply_text=reply, latency_ms=lat)
+            self.notifier.notify(
+                f"👁️ Batcomputer Vision ({lat}ms)",
+                f"You: \"{prompt[:60]}\"\n'Puter: \"{reply}\"",
+                timeout_ms=10000
+            )
+            self.play_tactical_sound("complete")
+            if v_res.get("audio_url"):
+                self.play_audio_url(v_res["audio_url"])
+            else:
+                self._speak_short_reply(reply)
+        except Exception as e:
+            print(f"[Vision Directive Error]: {e}")
+            self.emit_ui(state="ERROR", reply_text=f"Vision analysis error: {e}")
 
     def send_text_directive(self, directive: str, stt_ms: Optional[int] = None):
         """Execute a directive (from voice or typed into the companion app) and emit notifications + TTS."""
@@ -488,30 +586,15 @@ class AlfredBackgroundDaemon:
             except Exception as e:
                 print(f"Error fetching tactical briefing: {e}")
 
-        # Check if user asked 'Puter to inspect their local screen
-        if any(k in directive.lower() for k in ["look at my screen", "what is on my screen", "what's on my screen", "analyze my screen", "read my screen", "look at this error"]):
-            print(f"👁️ [Screen Vision]: Capturing screen for directive: \"{directive}\"")
-            self.emit_ui(state="SCANNING SCREEN...", user_text=directive)
-            b64_screen = self.capture_local_screen_b64()
-            try:
-                v_res = self.session.post(
-                    f"{self.server_url}/api/vision",
-                    json={"image": b64_screen, "client_host": socket.gethostname(), "target": "client", "prompt": directive, "skip_tts": False},
-                    timeout=18
-                ).json()
-                reply = v_res.get("reply", "")
-                lat = v_res.get("latency_ms", 0)
-                print(f"🦇 ['Puter ({lat}ms)]: \"{reply}\"")
-                self.emit_ui(state="SPEAKING", user_text=directive, reply_text=reply, latency_ms=lat)
-                self.notifier.notify(
-                    f"👁️ 'Puter Vision ({lat}ms)",
-                    f"You: \"{directive}\"\n'Puter: \"{reply}\"",
-                    timeout_ms=9000
-                )
-                if v_res.get("audio_url"):
-                    self.play_audio_url(v_res["audio_url"])
-            except Exception as e:
-                self.emit_ui(state="ERROR", reply_text=f"Vision error: {e}")
+        # Check if user asked 'Puter to inspect their local screen / code / error
+        vision_triggers = [
+            "look at my screen", "what is on my screen", "what's on my screen",
+            "analyze my screen", "read my screen", "look at this error", "look at this code",
+            "look at this", "inspect my screen", "diagnose this screen", "solve this error",
+            "what error is this", "read this window", "analyze this window"
+        ]
+        if any(k in directive.lower() for k in vision_triggers):
+            self.execute_vision_directive(directive, target="active_window")
             return
 
         # Standard Sub-Second Directive (or Autonomous Hermes Delegation to Alfred) + TTS
@@ -539,18 +622,83 @@ class AlfredBackgroundDaemon:
             self.emit_ui(state="ERROR", reply_text=f"Error: {e}")
 
     def _speak_short_reply(self, reply: str):
-        try:
-            tts_res = self.session.post(
-                f"{self.server_url}/api/tts",
-                json={"text": reply, "voice": self.voice},
-                timeout=10
-            ).json()
-            if tts_res.get("audio_url"):
-                self.play_audio_url(tts_res["audio_url"])
-            else:
-                self.emit_ui(state="STANDBY")
-        except Exception:
+        clean_text = re.sub(r'\[[A-Z0-9_]+:[^\]]*\]', '', reply).strip()
+        if not clean_text:
             self.emit_ui(state="STANDBY")
+            return
+
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', clean_text) if s.strip()]
+        if len(sentences) <= 1:
+            try:
+                tts_res = self.session.post(
+                    f"{self.server_url}/api/tts",
+                    json={"text": clean_text, "voice": self.voice},
+                    timeout=10
+                ).json()
+                if tts_res.get("audio_url"):
+                    self.play_audio_url(tts_res["audio_url"])
+                else:
+                    self.emit_ui(state="STANDBY")
+            except Exception:
+                self.emit_ui(state="STANDBY")
+            return
+
+        # Sentence-chunked streaming playback pipeline (<400ms first syllable)
+        def _stream_worker():
+            try:
+                # 1. Synthesize first sentence immediately
+                first_s = sentences[0]
+                res0 = self.session.post(
+                    f"{self.server_url}/api/tts",
+                    json={"text": first_s, "voice": self.voice},
+                    timeout=8
+                ).json()
+                url0 = res0.get("audio_url")
+                if not url0:
+                    self.emit_ui(state="STANDBY")
+                    return
+
+                # Concurrent prefetch queue for subsequent sentences
+                audio_queue = deque()
+                stop_event = threading.Event()
+
+                def _prefetch_subsequent():
+                    for s in sentences[1:]:
+                        if stop_event.is_set():
+                            break
+                        try:
+                            r = self.session.post(
+                                f"{self.server_url}/api/tts",
+                                json={"text": s, "voice": self.voice},
+                                timeout=10
+                            ).json()
+                            if r.get("audio_url"):
+                                audio_queue.append(r["audio_url"])
+                        except Exception:
+                            pass
+
+                prefetch_t = threading.Thread(target=_prefetch_subsequent, daemon=True)
+                prefetch_t.start()
+
+                # Play first sentence
+                self.play_audio_url(url0)
+
+                # Wait for player to finish before playing subsequent sentences
+                for _ in range(1, len(sentences)):
+                    wait_start = time.time()
+                    while not audio_queue and prefetch_t.is_alive() and time.time() - wait_start < 4.0:
+                        time.sleep(0.04)
+                    if audio_queue:
+                        next_url = audio_queue.popleft()
+                        while self.active_player is not None:
+                            time.sleep(0.04)
+                        self.play_audio_url(next_url)
+
+            except Exception as e:
+                print(f"[Streaming Speech Error]: {e}")
+                self.emit_ui(state="STANDBY")
+
+        threading.Thread(target=_stream_worker, daemon=True).start()
 
     def execute_evening_shutdown(self, directive: str):
         """
@@ -1424,6 +1572,12 @@ def set_wireplumber_audio(action: str, value: Any = None) -> dict:
             if vol_val > 1.5:
                 vol_val = vol_val / 100.0
             subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{vol_val:.2f}"], timeout=2, check=True)
+        elif action in ("vol_up", "volume_up"):
+            step = float(value) if value else 5.0
+            subprocess.run(["wpctl", "set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SINK@", f"{step}%+"], timeout=2, check=True)
+        elif action in ("vol_down", "volume_down"):
+            step = float(value) if value else 5.0
+            subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{step}%-"], timeout=2, check=True)
         elif action == "toggle_mute":
             subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"], timeout=2, check=True)
         elif action == "mute":
@@ -1463,6 +1617,92 @@ def dispatch_hyprland(dispatcher: str, args: str = "") -> dict:
         return {"ok": True, "dispatcher": dispatcher, "args": args}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def handle_desktop_action(action: str, params: Any = "") -> dict:
+    """Unified handler for local agentic desktop control (media, audio, hyprland, apps, cache)."""
+    action = (action or "").strip().lower()
+    params_str = str(params).strip()
+    
+    # 1. Media playback control (MPRIS via playerctl)
+    if action.startswith("media.") or action in ("play_pause", "play", "pause", "next", "previous", "prev", "stop", "media"):
+        sub = action.replace("media.", "")
+        if sub in ("play_pause", "play-pause", "toggle"):
+            r = subprocess.run(["playerctl", "play-pause"], capture_output=True, text=True)
+            return {"ok": r.returncode == 0, "action": "media.play_pause"}
+        elif sub == "play":
+            r = subprocess.run(["playerctl", "play"], capture_output=True, text=True)
+            return {"ok": r.returncode == 0, "action": "media.play"}
+        elif sub == "pause":
+            r = subprocess.run(["playerctl", "pause"], capture_output=True, text=True)
+            return {"ok": r.returncode == 0, "action": "media.pause"}
+        elif sub in ("next", "skip"):
+            r = subprocess.run(["playerctl", "next"], capture_output=True, text=True)
+            return {"ok": r.returncode == 0, "action": "media.next"}
+        elif sub in ("prev", "previous"):
+            r = subprocess.run(["playerctl", "previous"], capture_output=True, text=True)
+            return {"ok": r.returncode == 0, "action": "media.previous"}
+        elif sub == "status":
+            r = subprocess.run(["playerctl", "metadata", "--format", "{{ artist }} - {{ title }} ({{ status }})"], capture_output=True, text=True)
+            return {"ok": r.returncode == 0, "action": "media.status", "output": r.stdout.strip() or "No active media"}
+
+    # 2. Audio volume & sink control (WirePlumber)
+    if action.startswith("audio.") or action in ("volume_up", "volume_down", "set_volume", "mute", "unmute", "switch_sink", "vol_up", "vol_down"):
+        sub = action.replace("audio.", "")
+        if sub == "mute":
+            return set_wireplumber_audio("mute")
+        elif sub == "unmute":
+            return set_wireplumber_audio("unmute")
+        elif sub in ("vol_up", "volume_up"):
+            step = int(params_str) if params_str.isdigit() else 5
+            return set_wireplumber_audio("vol_up", step)
+        elif sub in ("vol_down", "volume_down"):
+            step = int(params_str) if params_str.isdigit() else 5
+            return set_wireplumber_audio("vol_down", step)
+        elif sub == "set_volume":
+            val = int(params_str) if params_str.isdigit() else 50
+            return set_wireplumber_audio("set_volume", val)
+        elif sub in ("switch_sink", "sink"):
+            st = get_wireplumber_audio_status()
+            sinks = st.get("sinks", [])
+            target_sink = None
+            if any(k in params_str.lower() for k in ("headphone", "barracuda", "razer", "usb")):
+                target_sink = next((s for s in sinks if any(k in s["name"].lower() for k in ("barracuda", "razer", "usb", "jieli"))), None)
+            elif any(k in params_str.lower() for k in ("speaker", "hdmi", "monitor", "rsgm")):
+                target_sink = next((s for s in sinks if any(k in s["name"].lower() for k in ("hdmi", "gp104", "rsgm"))), None)
+            if target_sink:
+                set_wireplumber_audio("set_sink", target_sink["id"])
+                return {"ok": True, "sink": target_sink["name"]}
+            return {"ok": False, "error": f"Sink not found for '{params_str}'"}
+
+    # 3. Hyprland Workspace & Window Management
+    if action.startswith("hyprland.") or action.startswith("wm."):
+        sub = action.split(".", 1)[1]
+        return dispatch_hyprland(sub, params_str)
+
+    # 4. App Launching
+    if action.startswith("app.") or action == "launch":
+        sub = action.replace("app.", "").replace("launch", "").strip() or params_str
+        return launch_local_desktop_application(sub)
+
+    # 5. System Maintenance / Storage Cleaning
+    if action in ("system.clean_cache", "clean_cache", "clear_cache"):
+        freed = []
+        try:
+            r1 = subprocess.run(["paccache", "-rk1"], capture_output=True, text=True, timeout=10)
+            if r1.stdout.strip():
+                freed.append(r1.stdout.strip().splitlines()[-1])
+        except Exception:
+            pass
+        try:
+            r2 = subprocess.run(["journalctl", "--vacuum-time=3d"], capture_output=True, text=True, timeout=10)
+            if r2.stdout.strip():
+                freed.append(r2.stdout.strip().splitlines()[-1])
+        except Exception:
+            pass
+        return {"ok": True, "output": "; ".join(freed) or "Cache already optimized."}
+
+    return {"ok": False, "error": f"Unknown action: {action}"}
 
 
 def save_quick_note(content: str) -> dict:
@@ -1566,6 +1806,23 @@ def handle_local_voice_shortcut(low_dir: str) -> Optional[dict]:
         )
         return {"reply": reply, "keep_desktop": True}
 
+    # Media Control via Playerctl (Sub-Second Local Execution)
+    if any(k in low_dir for k in ("pause music", "stop music", "pause audio", "pause media", "pause track")):
+        handle_desktop_action("media.pause")
+        return {"reply": "Media playback paused, Master Ramos."}
+    if any(k in low_dir for k in ("resume music", "play music", "resume audio", "play audio", "unpause music")):
+        handle_desktop_action("media.play")
+        return {"reply": "Media playback resumed, Master Ramos."}
+    if any(k in low_dir for k in ("next song", "next track", "skip song", "skip track")):
+        handle_desktop_action("media.next")
+        return {"reply": "Skipping to next track, Master Ramos."}
+    if any(k in low_dir for k in ("previous song", "previous track", "prior track", "restart song")):
+        handle_desktop_action("media.previous")
+        return {"reply": "Returning to previous track, Master Ramos."}
+    if any(k in low_dir for k in ("what's playing", "what is playing", "current song", "what song is this", "song status")):
+        st_res = handle_desktop_action("media.status")
+        return {"reply": f"Currently playing: {st_res.get('output', 'No active track')}, Master Ramos."}
+
     # Audio Control via WirePlumber
     if any(k in low_dir for k in ("mute volume", "mute audio", "silence sound", "mute system")):
         set_wireplumber_audio("mute")
@@ -1573,6 +1830,12 @@ def handle_local_voice_shortcut(low_dir: str) -> Optional[dict]:
     if any(k in low_dir for k in ("unmute volume", "unmute audio", "restore sound", "unmute system")):
         set_wireplumber_audio("unmute")
         return {"reply": "System audio restored, Master Ramos."}
+    if any(k in low_dir for k in ("volume up", "turn it up", "louder", "increase volume", "raise volume")):
+        set_wireplumber_audio("vol_up", 10)
+        return {"reply": "Master audio volume increased by 10 percent, Master Ramos."}
+    if any(k in low_dir for k in ("volume down", "turn it down", "softer", "decrease volume", "lower volume")):
+        set_wireplumber_audio("vol_down", 10)
+        return {"reply": "Master audio volume reduced by 10 percent, Master Ramos."}
     
     m_vol = re.search(r"(?:set\s+)?volume\s+(?:to\s+)?(\d+)(?:\s*%)?", low_dir)
     if m_vol:
@@ -1580,21 +1843,26 @@ def handle_local_voice_shortcut(low_dir: str) -> Optional[dict]:
         set_wireplumber_audio("set_volume", v_num)
         return {"reply": f"Master audio volume set to {v_num} percent, Master Ramos."}
 
-    if "switch audio to headphone" in low_dir or "switch sound to headphone" in low_dir or "audio to usb" in low_dir:
+    if any(k in low_dir for k in ("switch audio to headphone", "switch sound to headphone", "switch to barracuda", "switch to razer", "audio to headset")):
         st = get_wireplumber_audio_status()
-        target_sink = next((s for s in st["sinks"] if "usb" in s["name"].lower() or "jieli" in s["name"].lower()), None)
+        target_sink = next((s for s in st["sinks"] if any(k in s["name"].lower() for k in ("barracuda", "razer", "usb", "jieli"))), None)
         if target_sink:
             set_wireplumber_audio("set_sink", target_sink["id"])
             return {"reply": f"Audio output switched to {target_sink['name']}, Master Ramos."}
         return {"reply": "Switched audio output to default headphones, Master Ramos."}
 
-    if "switch audio to speaker" in low_dir or "switch audio to hdmi" in low_dir or "switch sound to monitor" in low_dir:
+    if any(k in low_dir for k in ("switch audio to speaker", "switch audio to hdmi", "switch sound to monitor", "switch to monitor speakers")):
         st = get_wireplumber_audio_status()
-        target_sink = next((s for s in st["sinks"] if "hdmi" in s["name"].lower() or "gp104" in s["name"].lower() or "rsgm" in s["name"].lower()), None)
+        target_sink = next((s for s in st["sinks"] if any(k in s["name"].lower() for k in ("hdmi", "gp104", "rsgm"))), None)
         if target_sink:
             set_wireplumber_audio("set_sink", target_sink["id"])
             return {"reply": f"Audio output switched to HDMI Monitor speakers, Master Ramos."}
         return {"reply": "Switched audio output to HDMI display, Master Ramos."}
+
+    # Storage Maintenance / Cache Optimization
+    if any(k in low_dir for k in ("clean cache", "clear cache", "clean pacman cache", "free up storage", "free disk space", "clean storage")):
+        c_res = handle_desktop_action("system.clean_cache")
+        return {"reply": f"Storage maintenance completed: {c_res.get('output', 'Optimized')}, Master Ramos."}
 
     # Hyprland Workspace & Window Management
     m_ws = re.search(r"(?:switch to\s+|go to\s+|workspace\s+)(\d+)", low_dir)
@@ -1656,6 +1924,85 @@ def handle_local_voice_shortcut(low_dir: str) -> Optional[dict]:
         launch_local_desktop_application("terminal")
         return {"reply": "Opening a local terminal window, Master Ramos."}
     return None
+
+
+class TacticalWatchdogManager:
+    """Proactive background watchdogs for storage thresholds, thermal spikes, and game/focus mode detection."""
+    def __init__(self, daemon: AlfredBackgroundDaemon):
+        self.daemon = daemon
+        self.last_storage_alert = 0.0
+        self.last_thermal_alert = 0.0
+        self.gaming_mode = False
+        self._stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run_loop, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self._stop_event.set()
+
+    def check_gaming_mode(self):
+        try:
+            res = subprocess.run(["hyprctl", "activewindow", "-j"], capture_output=True, text=True, timeout=1.0)
+            if res.returncode == 0 and res.stdout.strip():
+                data = json.loads(res.stdout)
+                is_fs = data.get("fullscreen", 0) != 0
+                c_class = (data.get("class") or "").lower()
+                c_title = (data.get("title") or "").lower()
+                is_game = any(k in c_class or k in c_title for k in ("steam_app", "gamescope", "wine", "retroarch", "heroic", "lutris", "cyberpunk", "witcher"))
+                self.gaming_mode = is_fs or is_game
+            else:
+                self.gaming_mode = False
+        except Exception:
+            self.gaming_mode = False
+
+    def check_storage(self):
+        now = time.time()
+        if now - self.last_storage_alert < 14400:  # 4 hours
+            return
+        try:
+            usage = shutil.disk_usage(str(Path.home()))
+            used_pct = (usage.used / usage.total) * 100.0
+            free_gb = usage.free / (1024**3)
+            if used_pct >= 89.5:
+                self.last_storage_alert = now
+                msg = f"Primary storage is at {used_pct:.1f}% capacity ({free_gb:.1f} GB free). Suggest clearing pacman cache."
+                self.daemon.notifier.notify("⚠️ Storage Threshold Warning", msg, timeout_ms=8000, urgency="critical")
+                if not self.gaming_mode:
+                    self.daemon.play_tactical_sound("warning")
+                    self.daemon._speak_short_reply(f"Tactical alert, Master Ramos. Primary storage has reached {int(used_pct)} percent capacity. You have {free_gb:.1f} gigabytes remaining.")
+        except Exception:
+            pass
+
+    def check_thermals(self):
+        now = time.time()
+        if now - self.last_thermal_alert < 1800:  # 30 mins
+            return
+        try:
+            hw = get_local_host_hardware_telemetry()
+            cpu_temp = hw.get("cpu", {}).get("temp_c", 0.0)
+            gpu_temp = hw.get("gpu", {}).get("temp_c", 0.0)
+            if cpu_temp >= 85.0 or gpu_temp >= 85.0:
+                self.last_thermal_alert = now
+                msg = f"High thermal load detected: CPU at {cpu_temp}°C, GPU at {gpu_temp}°C."
+                self.daemon.notifier.notify("🔥 High Thermal Alert", msg, timeout_ms=8000, urgency="critical")
+                if not self.gaming_mode:
+                    self.daemon.play_tactical_sound("warning")
+                    self.daemon._speak_short_reply("Warning, Master Ramos. Rig temperatures have exceeded 85 degrees Celsius.")
+        except Exception:
+            pass
+
+    def _run_loop(self):
+        time.sleep(10)  # Grace period during startup
+        while not self._stop_event.is_set():
+            try:
+                self.check_gaming_mode()
+                self.check_storage()
+                self.check_thermals()
+            except Exception as e:
+                print(f"[Watchdog Warning]: {e}")
+            time.sleep(30)
 
 
 def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int = LOCAL_BRIDGE_PORT):
@@ -1825,6 +2172,20 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                 self._send_json(query_local_calendar_agenda())
                 return
 
+            if parsed.path == "/local/vision":
+                threading.Thread(target=daemon.execute_vision_directive, args=("Analyze active window", "active_window"), daemon=True).start()
+                self._send_json({"ok": True, "target": "active_window", "state": "SCANNING"})
+                return
+
+            if parsed.path == "/local/watchdogs":
+                self._send_json({
+                    "ok": True,
+                    "gaming_mode": getattr(daemon.watchdogs, "gaming_mode", False) if daemon.watchdogs else False,
+                    "last_storage_alert": getattr(daemon.watchdogs, "last_storage_alert", 0.0) if daemon.watchdogs else 0.0,
+                    "last_thermal_alert": getattr(daemon.watchdogs, "last_thermal_alert", 0.0) if daemon.watchdogs else 0.0,
+                })
+                return
+
             self._send_json({"error": "Not found"}, status=404)
 
         def do_POST(self):
@@ -1930,6 +2291,18 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                 if cmd:
                     threading.Thread(target=daemon.send_text_directive, args=(cmd,), daemon=True).start()
                 self._send_json({"ok": True, "command": cmd})
+                return
+
+            if parsed.path == "/local/action":
+                res = handle_desktop_action(data.get("action", ""), data.get("params", ""))
+                self._send_json(res)
+                return
+
+            if parsed.path == "/local/vision":
+                target = data.get("target", "active_window")
+                prompt = data.get("prompt") or "Analyze what is in this active window and provide a tactical assessment or solution, Master Ramos."
+                threading.Thread(target=daemon.execute_vision_directive, args=(prompt, target), daemon=True).start()
+                self._send_json({"ok": True, "target": target, "state": "SCANNING"})
                 return
 
             self._send_json({"error": "Unknown endpoint"}, status=404)
@@ -2637,6 +3010,10 @@ if __name__ == "__main__":
 
     # Start the Local Desktop Bridge HTTP Server (127.0.0.1:7778) for local file & app browsing
     start_local_desktop_bridge_server(daemon, port=LOCAL_BRIDGE_PORT)
+
+    # Initialize and engage Proactive Tactical Watchdogs (Storage, Thermals & Gaming Focus Mode)
+    daemon.watchdogs = TacticalWatchdogManager(daemon)
+    daemon.watchdogs.start()
 
     if args.briefing:
         def _run_startup_briefing():
