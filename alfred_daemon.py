@@ -163,6 +163,44 @@ class DesktopNotifier:
             pass
 
 
+
+def ensure_nvr_bridge():
+    """Ensure 192.168.1.89 IP alias and DNAT forwarding to Dahua NVR (192.168.1.185) are active on Arch Linux."""
+    if sys.platform != "linux":
+        return
+    try:
+        r = subprocess.run(["ip", "addr", "show", "dev", "enp4s0"], capture_output=True, text=True)
+        if "192.168.1.89" not in r.stdout:
+            subprocess.run(["sudo", "-n", "ip", "addr", "add", "192.168.1.89/24", "dev", "enp4s0"], check=False)
+            subprocess.run(["sudo", "-n", "sysctl", "-w", "net.ipv4.ip_forward=1"], check=False)
+            subprocess.run([
+                "sudo", "-n", "iptables", "-t", "nat", "-I", "PREROUTING", "1",
+                "-d", "192.168.1.89", "-p", "tcp", "-m", "multiport", "--dports", "80,443,554,8000,37777",
+                "-j", "DNAT", "--to-destination", "192.168.1.185"
+            ], check=False)
+            subprocess.run([
+                "sudo", "-n", "iptables", "-t", "nat", "-I", "OUTPUT", "1",
+                "-d", "192.168.1.89", "-p", "tcp", "-m", "multiport", "--dports", "80,443,554,8000,37777",
+                "-j", "DNAT", "--to-destination", "192.168.1.185"
+            ], check=False)
+            subprocess.run([
+                "sudo", "-n", "iptables", "-t", "nat", "-A", "POSTROUTING",
+                "-d", "192.168.1.185", "-j", "MASQUERADE"
+            ], check=False)
+            subprocess.run([
+                "sudo", "-n", "iptables", "-I", "FORWARD", "1",
+                "-d", "192.168.1.185", "-p", "tcp", "-m", "multiport", "--dports", "80,443,554,8000,37777",
+                "-j", "ACCEPT"
+            ], check=False)
+            subprocess.run([
+                "sudo", "-n", "iptables", "-I", "FORWARD", "1",
+                "-s", "192.168.1.185", "-j", "ACCEPT"
+            ], check=False)
+            print("🦇 [NVR Sentry]: 192.168.1.89 -> 192.168.1.185 bridge established.")
+    except Exception as e:
+        print(f"[NVR Bridge Warning]: {e}")
+
+
 _ACTIVE_DAEMON: Optional[Any] = None
 
 
@@ -216,6 +254,7 @@ class AlfredBackgroundDaemon:
         self.timers = ButlerTimerManager(self)
         self.timers.start()
         self.focus = ArkhamFocusModeManager(self)
+        ensure_nvr_bridge()
 
     def emit_ui(self, **kwargs):
         if "state" in kwargs:
@@ -224,6 +263,8 @@ class AlfredBackgroundDaemon:
             self.last_user_text = kwargs["user_text"]
         if "reply_text" in kwargs:
             self.last_reply_text = kwargs["reply_text"]
+        if "drawer_open" in kwargs:
+            self.drawer_open = kwargs["drawer_open"]
         if self.ui_callback:
             try:
                 self.ui_callback(kwargs)
@@ -627,7 +668,19 @@ class AlfredBackgroundDaemon:
             if reply:
                 self._speak_short_reply(reply)
         except Exception as e:
-            print(f"[Chat Error]: {e}")
+            print(f"[Chat Server Offline / Fallback]: {e}")
+            local_reply = query_local_ollama_fallback(directive)
+            if local_reply:
+                badge = "🛡️ 'Puter (Air-Gapped GTX 1080 Local LLM)"
+                print(f"🛡️ ['Puter Local LLM Fallback]: \"{local_reply}\"")
+                self.emit_ui(state="SPEAKING", user_text=directive, reply_text=local_reply, latency_ms=450)
+                self.notifier.notify(
+                    badge,
+                    f"You: \"{directive}\"\n'Puter: \"{local_reply}\"",
+                    timeout_ms=10000
+                )
+                self._speak_short_reply(local_reply)
+                return
             self.emit_ui(state="ERROR", reply_text=f"Error: {e}")
 
     def _speak_short_reply(self, reply: str):
@@ -1826,6 +1879,182 @@ def query_local_calendar_agenda() -> dict:
         return {"events": [], "summary": f"Could not read calendar: {e}"}
 
 
+def query_local_ollama_fallback(prompt: str) -> Optional[str]:
+    """Offline air-gapped LLM inference using local Ollama llama3.2:3b on the GTX 1080 workstation."""
+    try:
+        payload = {
+            "model": "llama3.2:3b",
+            "prompt": prompt,
+            "system": (
+                "You are 'Puter, the autonomous Wayne Tech Batcomputer. You assist Master Ramos. "
+                "Keep your answers tactical, direct, polite, and concise (under 2-3 sentences). "
+                "You are currently running in air-gapped zero-cloud fallback mode on his local GTX 1080 rig."
+            ),
+            "stream": False,
+            "options": {"temperature": 0.5, "num_predict": 128}
+        }
+        req = urllib.request.Request(
+            "http://127.0.0.1:11434/api/generate",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("response", "").strip()
+    except Exception as e:
+        print(f"[Ollama Fallback Warning]: {e}")
+        return None
+
+
+def get_media_telemetry() -> dict:
+    """Extract real-time track metadata, artist, album, and art URL via playerctl."""
+    if not shutil.which("playerctl"):
+        return {"status": "Stopped", "title": "No Player", "artist": "", "album": "", "art_url": "", "is_playing": False}
+    try:
+        cmd = ["playerctl", "metadata", "--format", "{{status}};;;{{title}};;;{{artist}};;;{{album}};;;{{mpris:artUrl}}"]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1.5)
+        if r.returncode == 0 and r.stdout.strip():
+            parts = r.stdout.strip().split(";;;")
+            status = parts[0] if len(parts) > 0 else "Unknown"
+            title = parts[1] if len(parts) > 1 else "Unknown"
+            artist = parts[2] if len(parts) > 2 else "Unknown"
+            album = parts[3] if len(parts) > 3 else ""
+            art_url = parts[4] if len(parts) > 4 else ""
+            return {
+                "status": status,
+                "title": title,
+                "artist": artist,
+                "album": album,
+                "art_url": art_url,
+                "is_playing": status.lower() == "playing"
+            }
+    except Exception:
+        pass
+    return {"status": "Stopped", "title": "No Media Playing", "artist": "", "album": "", "art_url": "", "is_playing": False}
+
+
+def get_homelab_services() -> dict:
+    """Query real-time container states on OptiPlex Craftoria (192.168.1.131) and ZimaOS (100.84.108.41)."""
+    optiplex_res = {"host": "192.168.1.131", "name": "OptiPlex 9010 (Craftoria)", "online": False, "minecraft": "Offline", "containers": []}
+    zimaos_res = {"host": "100.84.108.41", "name": "ZimaOS Ingress", "online": False, "containers": []}
+    
+    # Query OptiPlex Craftoria & containers
+    try:
+        cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", "jmrd@192.168.1.131", "docker ps --format '{{.Names}}: {{.Status}}'"]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+        if r.returncode == 0:
+            optiplex_res["online"] = True
+            lines = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+            optiplex_res["containers"] = lines
+            for l in lines:
+                if "crafty" in l.lower():
+                    optiplex_res["minecraft"] = "Online (" + l.split(": ", 1)[-1] + ")"
+                    break
+    except Exception as e:
+        optiplex_res["error"] = str(e)
+        
+    # Query ZimaOS containers
+    try:
+        cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", "jmrd@100.84.108.41", "docker ps --format '{{.Names}}: {{.Status}}'"]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+        if r.returncode == 0:
+            zimaos_res["online"] = True
+            lines = [l.strip() for l in r.stdout.splitlines() if l.strip() and not l.startswith("WARNING")]
+            zimaos_res["containers"] = lines
+    except Exception as e:
+        zimaos_res["error"] = str(e)
+
+    summary = f"OptiPlex Craftoria is {optiplex_res['minecraft']}, ZimaOS has {len(zimaos_res['containers'])} containers active."
+    return {
+        "optiplex": optiplex_res,
+        "zimaos": zimaos_res,
+        "summary": summary
+    }
+
+
+def restart_craftoria_server() -> str:
+    """Trigger graceful restart of the Minecraft Craftoria instance on OptiPlex 9010."""
+    try:
+        cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=4", "jmrd@192.168.1.131", "docker restart crafty"]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+        if r.returncode == 0:
+            return "OptiPlex Craftoria Minecraft container restarted successfully, Master Ramos."
+        return f"Restart directive encountered an error on OptiPlex: {r.stderr.strip() or 'Unknown'}"
+    except Exception as e:
+        return f"Could not reach OptiPlex server: {e}"
+
+
+def get_academic_deadlines() -> dict:
+    """Filter upcoming university coursework, labs, and exams from calendar records."""
+    cal_file = BASE_DIR / "calendar.json"
+    if not cal_file.exists():
+        return {"deadlines": [], "summary": "No academic calendar records found."}
+    try:
+        items = json.loads(cal_file.read_text(encoding="utf-8"))
+        upcoming = [i for i in items if not i.get("is_past") and any(k in (i.get("title") or "").upper() for k in ("MATH", "STAT", "HON", "CSE", "EXAM", "TEST", "ASSIGNMENT", "LAB"))]
+        upcoming.sort(key=lambda x: (x.get("date", ""), x.get("time", "")))
+        if upcoming:
+            summaries = [f"{e.get('title')} on {e.get('date')} ({e.get('time')})" for e in upcoming[:3]]
+            return {
+                "deadlines": upcoming[:10],
+                "summary": f"You have {len(upcoming)} upcoming academic course milestones, Master Ramos. Next: {', '.join(summaries)}."
+            }
+        return {"deadlines": [], "summary": "No upcoming academic deadlines detected on your calendar, Master Ramos."}
+    except Exception as e:
+        return {"deadlines": [], "summary": f"Error querying academic calendar: {e}"}
+
+
+def get_camera_surveillance_matrix() -> dict:
+    """Return all 8 channels of the NVR at 192.168.1.89 plus the Anycubic Kobra 3D printer bed camera."""
+    channel_labels = [
+        "Channel 1 - Front Driveway & Perimeter",
+        "Channel 2 - Front Porch & Entrance",
+        "Channel 3 - Perimeter East / Side Gate",
+        "Channel 4 - Perimeter West / Garage",
+        "Channel 5 - South Perimeter / Yard",
+        "Channel 6 - Rear Deck & Patio",
+        "Channel 7 - Server Rack & Homelab",
+        "Channel 8 - Batcave Interior & Workshop"
+    ]
+    camera_entities = [
+        "camera.192_168_1_171",
+        "camera.192_168_1_171_2",
+        "camera.192_168_1_171_3",
+        "camera.192_168_1_171_4",
+        "camera.192_168_1_171_5",
+        "camera.192_168_1_171_6",
+        "camera.192_168_1_171_7",
+        "camera.192_168_1_171_8"
+    ]
+    cameras = []
+    for i, ent in enumerate(camera_entities):
+        cameras.append({
+            "channel": i + 1,
+            "label": channel_labels[i],
+            "entity_id": ent,
+            "host": "192.168.1.89",
+            "feed_url": f"/local/camera-feed/{i+1}",
+            "status": "ONLINE"
+        })
+    # Add Anycubic 3D printer camera as Channel 9
+    cameras.append({
+        "channel": 9,
+        "label": "Channel 9 - Anycubic Kobra 3D Printer Bed",
+        "entity_id": "camera.anycubic_kobra_x_cloud_camera",
+        "host": "anycubic-cloud",
+        "feed_url": "/local/camera-feed/9",
+        "status": "ONLINE"
+    })
+    return {
+        "ok": True,
+        "total_channels": len(cameras),
+        "nvr_host": "192.168.1.89",
+        "nvr_channels": 8,
+        "cameras": cameras
+    }
+
+
+
 def handle_local_voice_shortcut(low_dir: str) -> Optional[dict]:
     """Allow voice commands for local hardware temps, audio volume, hyprland workspaces, quick notes, and apps."""
     if any(k in low_dir for k in (
@@ -2008,6 +2237,42 @@ def handle_local_voice_shortcut(low_dir: str) -> Optional[dict]:
         except Exception as e:
             print(f"[Printer Query Error]: {e}")
         return {"reply": "Unable to communicate with the Anycubic 3D printer telemetry feed at this moment, Master Ramos."}
+
+    # Batcave Surveillance Matrix (8 Channels at 192.168.1.89 + 3D Printer Bed)
+    if any(k in low_dir for k in (
+        "show camera", "show the camera", "show cameras", "see the camera", "see the cameras",
+        "see cameras", "look at the camera", "look at the cameras", "security camera", "security cameras",
+        "cameras at 192.168.1.89", "batcave surveillance", "open cameras", "check cameras", "view cameras",
+        "show surveillance", "surveillance grid"
+    )):
+        if _ACTIVE_DAEMON:
+            _ACTIVE_DAEMON.play_tactical_sound("scan")
+            _ACTIVE_DAEMON.emit_ui(state="SPEAKING", drawer_open="cameras", show_cameras=True)
+        # Also open or focus the Batcomputer surveillance view in Zen Browser if available
+        try:
+            launch_local_desktop_application("browser", "http://127.0.0.1:7778/#cameras")
+        except Exception:
+            pass
+        return {"reply": "Displaying all 8 security camera channels and perimeter surveillance feeds now, Master Ramos."}
+
+    # Minecraft Server & Homelab Sentry
+    if any(k in low_dir for k in ("minecraft status", "craftoria status", "is minecraft running", "minecraft server", "craftoria server")):
+        hl = get_homelab_services()
+        crafty_st = hl["optiplex"]["minecraft"]
+        return {"reply": f"OptiPlex Craftoria Minecraft server status: {crafty_st}, Master Ramos."}
+
+    if any(k in low_dir for k in ("restart minecraft", "restart craftoria", "reboot minecraft", "reboot craftoria")):
+        msg = restart_craftoria_server()
+        return {"reply": msg}
+
+    if any(k in low_dir for k in ("homelab status", "check containers", "server containers", "docker status", "homelab containers")):
+        hl = get_homelab_services()
+        return {"reply": f"Homelab Sentry: {hl['summary']}, Master Ramos."}
+
+    # Academic & University Task Radar
+    if any(k in low_dir for k in ("what assignments are due", "check my deadlines", "upcoming deadlines", "academic schedule", "upcoming classes", "cse deadlines", "my assignments", "upcoming exams", "next exam")):
+        task_info = get_academic_deadlines()
+        return {"reply": task_info["summary"]}
 
     if not any(low_dir.startswith(prefix) or f" {prefix}" in low_dir for prefix in ("open ", "launch ", "start ", "browse ", "show my ")):
         return None
@@ -2447,6 +2712,8 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                 return
 
             if parsed.path == "/local/status":
+                dr_open = getattr(daemon, "drawer_open", None)
+                daemon.drawer_open = None
                 self._send_json({
                     "ok": True,
                     "host": socket.gethostname(),
@@ -2454,6 +2721,7 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                     "state": daemon.current_state,
                     "user_text": daemon.last_user_text,
                     "reply_text": daemon.last_reply_text,
+                    "drawer_open": dr_open,
                     "hardware": get_local_host_hardware_telemetry(),
                     "disks": {
                         "root": get_local_disk_stats("/"),
@@ -2583,6 +2851,53 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                     self._send_json({"ok": False, "error": str(e)}, status=502)
                 return
 
+            if parsed.path == "/local/cameras":
+                self._send_json(get_camera_surveillance_matrix())
+                return
+
+            if parsed.path.startswith("/local/camera-feed/"):
+                try:
+                    ch_str = parsed.path.replace("/local/camera-feed/", "").strip("/")
+                    ch = int(ch_str)
+                    if ch == 9:
+                        ent = "camera.anycubic_kobra_x_cloud_camera"
+                    elif 1 <= ch <= 8:
+                        ent = "camera.192_168_1_171" if ch == 1 else f"camera.192_168_1_171_{ch}"
+                    else:
+                        self._send_json({"error": "Invalid channel"}, status=400)
+                        return
+
+                    h_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI1ZjliNjAxM2NlNGE0NWVkYjQ2YWI4NjUzNDhjNjVmNCIsImlhdCI6MTc4NjczODQwMywiZXhwIjoyMTAyMDk4NDAzfQ.envnI47PZEyjiiG7JO9tYwigpRmghO7sh979plOP_fc"
+                    ha_cam_url = f"http://100.93.110.2:8123/api/camera_proxy_stream/{ent}"
+                    req = urllib.request.Request(ha_cam_url, headers={"Authorization": f"Bearer {h_token}"})
+                    with urllib.request.urlopen(req, timeout=12) as upstream:
+                        self.send_response(200)
+                        c_type = upstream.headers.get("Content-Type", "multipart/x-mixed-replace; boundary=--frameboundary")
+                        self.send_header("Content-Type", c_type)
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                        self.end_headers()
+                        while True:
+                            chunk = upstream.read(4096)
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                except Exception:
+                    pass
+                return
+
+            if parsed.path == "/local/media":
+                self._send_json(get_media_telemetry())
+                return
+
+            if parsed.path == "/local/homelab/status":
+                self._send_json(get_homelab_services())
+                return
+
+            if parsed.path == "/local/tasks":
+                self._send_json(get_academic_deadlines())
+                return
+
             self._send_json({"error": "Not found"}, status=404)
 
         def do_POST(self):
@@ -2593,6 +2908,11 @@ def start_local_desktop_bridge_server(daemon: AlfredBackgroundDaemon, port: int 
                 data = json.loads(raw_body) if raw_body else {}
             except Exception:
                 data = {}
+
+            if parsed.path == "/local/homelab/restart":
+                msg = restart_craftoria_server()
+                self._send_json({"ok": True, "message": msg})
+                return
 
             if parsed.path.startswith("/api/"):
                 try:

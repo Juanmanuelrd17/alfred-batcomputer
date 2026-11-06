@@ -838,13 +838,14 @@
 
     /* Multi-Drawer Right Column */
     .drawer-tabs {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      display: flex;
+      flex-wrap: wrap;
       gap: 3px;
       margin-bottom: 5px;
     }
 
     .drawer-tab {
+      flex: 1 1 65px;
       background: rgba(0, 22, 44, 0.75);
       border: 1px solid var(--panel-border);
       color: rgba(0, 229, 255, 0.78);
@@ -857,6 +858,7 @@
       cursor: pointer;
       border-radius: 2px;
       transition: all 0.18s;
+      white-space: nowrap;
     }
 
     .drawer-tab:hover {
@@ -1606,6 +1608,10 @@
             <span style="color:var(--cyan); font-size:9px;">⏳</span>
             <span id="topNextEventLabel">NEXT: Syncing Agenda...</span>
           </div>
+          <div id="topNowPlayingPill" class="next-event-pill" style="margin-top:3px; display:none; cursor:pointer;" onclick="toggleMediaPlayback()" title="Click to play/pause media">
+            <span style="color:var(--cyan); font-size:9px;">🎵</span>
+            <span id="topNowPlayingText" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px;">No Media</span>
+          </div>
         </div>
       </div>
 
@@ -1724,6 +1730,14 @@
         <div class="orbital-node" id="orb-home" onclick="switchDrawer('home')" title="Home Assistant Smart Vault">
           <span class="icon">🦇</span>
           <span>CAVE</span>
+        </div>
+        <div class="orbital-node" id="orb-cameras" onclick="switchDrawer('cameras')" title="Batcave 8-Channel Surveillance Grid">
+          <span class="icon">📹</span>
+          <span>CAMS</span>
+        </div>
+        <div class="orbital-node" id="orb-homelab" onclick="switchDrawer('homelab')" title="OptiPlex Craftoria & ZimaOS Sentry">
+          <span class="icon">🖥️</span>
+          <span>HOMELAB</span>
         </div>
 
         <div class="wtech-badge">W TECH</div>
@@ -1962,6 +1976,8 @@
 
       <div class="drawer-tabs">
         <div class="drawer-tab active" data-tab="files" onclick="switchDrawer('files')">📂 FILES</div>
+        <div class="drawer-tab" data-tab="cameras" onclick="switchDrawer('cameras')">📹 SURVEILLANCE</div>
+        <div class="drawer-tab" data-tab="homelab" onclick="switchDrawer('homelab')">🖥️ HOMELAB</div>
         <div class="drawer-tab" data-tab="tools" onclick="switchDrawer('tools')">🔌 TOOLS</div>
         <div class="drawer-tab" data-tab="reverse" onclick="switchDrawer('reverse')">🧬 TEARDOWN</div>
         <div class="drawer-tab" data-tab="home" onclick="switchDrawer('home')">🏠 SMART HOME</div>
@@ -2023,6 +2039,50 @@
         <!-- Numbered 01..N File & Folder List (Matches BCv1.2 Reference Screenshot) -->
         <div id="localFilesListContainer" style="max-height:285px; overflow-y:auto;">
           <div style="font-size:10px; color:rgba(0,229,255,0.7);">Connecting to Local Desktop Bridge (127.0.0.1:7778)...</div>
+        </div>
+      </div>
+
+      <!-- =====================================================
+           SURVEILLANCE TAB: BATCAVE 8-CHANNEL NVR & 3D PRINTER BED
+           ===================================================== -->
+      <div id="drawer-cameras" class="drawer-content">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div>
+            <span style="font-size:10px; color:var(--cyan-bright); font-family:var(--font-display); font-weight:bold;">
+              // BATCAVE SURVEILLANCE MATRIX // 192.168.1.89 (8 CHANNELS + 3D PRINTER)
+            </span>
+            <div style="font-size:8.5px; color:rgba(0,229,255,0.7); font-family:'Share Tech Mono', monospace;">
+              ● REC - REAL-TIME HLS / MJPEG DUAL-FEED ACTIVE
+            </div>
+          </div>
+          <div style="display:flex; gap:4px;">
+            <button class="hud-btn" style="height:22px; font-size:8.5px; padding:0 8px;" onclick="loadCamerasDrawer()">⚡ REFRESH FEEDS</button>
+          </div>
+        </div>
+
+        <div id="camerasMatrixGrid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:8px; max-height:360px; overflow-y:auto; padding-right:2px;">
+          <div style="color:var(--cyan); font-size:10px; padding:10px;">Connecting to NVR 192.168.1.89 & Home Assistant Stream Server...</div>
+        </div>
+      </div>
+
+      <!-- =====================================================
+           HOMELAB TAB: OPTIPLEX CRAFTORIA MINECRAFT & ZIMAOS SENTRY
+           ===================================================== -->
+      <div id="drawer-homelab" class="drawer-content">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div>
+            <span style="font-size:10px; color:var(--cyan-bright); font-family:var(--font-display); font-weight:bold;">
+              // WAYNE TECH HOMELAB SENTRY & CONTAINER ORCHESTRATION
+            </span>
+            <div style="font-size:8.5px; color:rgba(0,229,255,0.7); font-family:'Share Tech Mono', monospace;">
+              DIRECT NODE TELEMETRY // OPTIPLEX 9010 + ZIMAOS INGRESS
+            </div>
+          </div>
+          <button class="hud-btn" style="height:22px; font-size:8.5px; padding:0 8px;" onclick="loadHomelabDrawer()">⚡ REFRESH NODES</button>
+        </div>
+
+        <div id="homelabContainer" style="max-height:360px; overflow-y:auto; padding-right:2px;">
+          <div style="color:var(--cyan); font-size:10px; padding:10px;">Querying Homelab clusters...</div>
         </div>
       </div>
 
@@ -3834,6 +3894,8 @@
       if (contentEl) contentEl.classList.add('active');
 
       if (tab === 'files') loadLocalFiles(currentLocalDir);
+      else if (tab === 'cameras') loadCamerasDrawer();
+      else if (tab === 'homelab') loadHomelabDrawer();
       else if (tab === 'tools') loadToolsHub();
       else if (tab === 'brain') loadBrainNotes();
       else if (tab === 'calendar') loadCalendarAgenda();
@@ -3841,6 +3903,119 @@
       else if (tab === 'memory') loadMemories();
 
       playBeep(1046, 'sine', 0.04);
+    }
+
+    async function loadCamerasDrawer() {
+      const container = document.getElementById('camerasMatrixGrid');
+      if (!container) return;
+      try {
+        const res = await fetch('/local/cameras');
+        const data = await res.json();
+        if (!data.cameras || data.cameras.length === 0) {
+          container.innerHTML = '<div style="color:var(--cyan); padding:10px;">No camera feeds active.</div>';
+          return;
+        }
+        let html = '';
+        data.cameras.forEach(c => {
+          html += `
+            <div class="camera-card" style="background:rgba(0,16,32,0.85); border:1px solid rgba(0,229,255,0.3); border-radius:4px; padding:6px; transition:all 0.2s;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; font-size:9px; font-family:var(--font-display); letter-spacing:0.5px;">
+                <span style="color:var(--cyan); font-weight:bold;">CH ${String(c.channel).padStart(2, '0')} // ${c.label}</span>
+                <span style="color:#00ff88; font-size:8px; font-family:'Share Tech Mono';">● LIVE 1080P</span>
+              </div>
+              <div style="position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:3px; overflow:hidden; border:1px solid rgba(0,229,255,0.2);">
+                <img src="${c.feed_url}" alt="${c.label}" style="width:100%; height:100%; object-fit:cover;" onerror="this.onerror=null; this.src='/static/cam_offline.png';" />
+                <div style="position:absolute; bottom:4px; left:6px; font-family:'Share Tech Mono', monospace; font-size:8px; color:rgba(0,229,255,0.9); background:rgba(0,0,0,0.65); padding:1px 4px; border-radius:2px;">
+                  ${c.host} // RTSP:554
+                </div>
+                <div style="position:absolute; top:4px; right:6px; font-size:8px; color:#ff3333; background:rgba(0,0,0,0.7); padding:1px 4px; border-radius:2px; font-weight:bold;">
+                  ● LIVE
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        container.innerHTML = html;
+      } catch (e) {
+        container.innerHTML = `<div style="color:#ff5555; padding:10px;">Failed to load surveillance feeds: ${e}</div>`;
+      }
+    }
+
+    async function loadHomelabDrawer() {
+      const container = document.getElementById('homelabContainer');
+      if (!container) return;
+      container.innerHTML = '<div style="color:var(--cyan); font-size:10px; padding:8px;">Querying OptiPlex 9010 & ZimaOS Sentry...</div>';
+      try {
+        const res = await fetch('/local/homelab/status');
+        const data = await res.json();
+        const opt = data.optiplex || {};
+        const zim = data.zimaos || {};
+        let html = `
+          <div style="margin-bottom:12px; background:rgba(0,20,40,0.8); border:1px solid rgba(0,229,255,0.3); border-radius:4px; padding:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-family:var(--font-display); font-size:11px; color:#fff; font-weight:bold;">
+                ⛏️ OPTIPLEX 9010 // MINECRAFT CRAFTORIA (${opt.host})
+              </span>
+              <span style="font-size:9px; color:${opt.online ? 'var(--green)' : '#ff5555'}; font-weight:bold;">
+                ${opt.online ? 'ONLINE' : 'OFFLINE'}
+              </span>
+            </div>
+            <div style="font-size:10px; color:rgba(0,229,255,0.85); margin-bottom:8px;">
+              Minecraft Status: <strong style="color:#fff;">${opt.minecraft || 'Offline'}</strong>
+            </div>
+            <div style="display:flex; gap:6px; margin-bottom:10px;">
+              <button onclick="restartMinecraftServer()" style="background:rgba(255,85,85,0.2); border:1px solid #ff5555; color:#fff; font-family:var(--font-display); font-size:9px; padding:4px 8px; border-radius:2px; cursor:pointer;">
+                🔄 RESTART MINECRAFT (CRAFTY)
+              </button>
+              <button onclick="loadHomelabDrawer()" style="background:rgba(0,229,255,0.15); border:1px solid var(--cyan); color:#fff; font-family:var(--font-display); font-size:9px; padding:4px 8px; border-radius:2px; cursor:pointer;">
+                ⚡ REFRESH
+              </button>
+            </div>
+            <div style="font-size:9px; color:rgba(255,255,255,0.6); max-height:90px; overflow-y:auto; font-family:'Share Tech Mono', monospace; background:rgba(0,0,0,0.4); padding:4px; border-radius:2px;">
+              ${(opt.containers || []).join('<br>')}
+            </div>
+          </div>
+
+          <div style="background:rgba(0,20,40,0.8); border:1px solid rgba(0,229,255,0.3); border-radius:4px; padding:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-family:var(--font-display); font-size:11px; color:#fff; font-weight:bold;">
+                🌐 ZIMAOS INGRESS & REVERSE PROXY (${zim.host})
+              </span>
+              <span style="font-size:9px; color:${zim.online ? 'var(--green)' : '#ff5555'}; font-weight:bold;">
+                ${zim.online ? 'ONLINE' : 'OFFLINE'}
+              </span>
+            </div>
+            <div style="font-size:9px; color:rgba(255,255,255,0.6); max-height:120px; overflow-y:auto; font-family:'Share Tech Mono', monospace; background:rgba(0,0,0,0.4); padding:4px; border-radius:2px;">
+              ${(zim.containers || []).join('<br>')}
+            </div>
+          </div>
+        `;
+        container.innerHTML = html;
+      } catch (e) {
+        container.innerHTML = `<div style="color:#ff5555; padding:8px;">Homelab query failed: ${e}</div>`;
+      }
+    }
+
+    async function restartMinecraftServer() {
+      if (!confirm("Confirm restart of OptiPlex Craftoria Minecraft server?")) return;
+      try {
+        const res = await fetch('/local/homelab/restart', { method: 'POST' });
+        const data = await res.json();
+        alert(data.message || 'Directive transmitted.');
+        setTimeout(loadHomelabDrawer, 2000);
+      } catch (e) {
+        alert('Restart failed: ' + e);
+      }
+    }
+
+    async function toggleMediaPlayback() {
+      try {
+        await fetch('/local/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'media.play_pause' })
+        });
+      } catch (e) {}
     }
 
     function openDesktopFolderOrb(folderPath, orbId) {
@@ -3882,9 +4057,28 @@
         if (hostLbl && data.host) {
           hostLbl.innerText = `// LOCAL DESKTOP SHELL (${data.host.toUpperCase()})`;
         }
+        if (data.drawer_open) {
+          switchDrawer(data.drawer_open);
+        }
         if (data.state) {
           updateHeroCrestState(data.state);
         }
+
+        // Live Media Telemetry & Now Playing Dock
+        try {
+          const mRes = await fetch(`${LOCAL_BRIDGE_URL}/local/media`);
+          const mData = await mRes.json();
+          const npPill = document.getElementById('topNowPlayingPill');
+          const npText = document.getElementById('topNowPlayingText');
+          if (npPill && npText) {
+            if (mData.title && mData.title !== 'No Media Playing' && mData.title !== 'No Player') {
+              npPill.style.display = 'flex';
+              npText.innerText = `${mData.is_playing ? '▶ ' : '⏸ '}${mData.title} - ${mData.artist || 'Unknown'}`;
+            } else {
+              npPill.style.display = 'none';
+            }
+          }
+        } catch (e) {}
 
         // Update Local Host CPU, GPU, NVMe, Fans & Top Arc Gauges
         if (data.hardware) {
